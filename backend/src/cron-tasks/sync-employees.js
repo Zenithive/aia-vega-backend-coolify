@@ -46,10 +46,10 @@ function cleanMeaningfulText(value) {
   return text;
 }
 
-function normalizeDate(value, fallback = '1970-01-01') {
-  if (!value) return fallback;
+function normalizeDate(value) {
+  if (!value) return null;
   const asString = String(value).trim();
-  if (!asString) return fallback;
+  if (!asString) return null;
 
   const isoMatch = asString.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
@@ -65,7 +65,7 @@ function normalizeDate(value, fallback = '1970-01-01') {
   }
 
   const parsed = new Date(asString);
-  if (Number.isNaN(parsed.getTime())) return fallback;
+  if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString().slice(0, 10);
 }
 

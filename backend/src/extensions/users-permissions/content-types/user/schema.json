@@ -80,11 +80,11 @@
     },
     "joining_date": {
       "type": "date",
-      "required": true
+      "required": false
     },
     "date_of_birth": {
       "type": "date",
-      "required": true
+      "required": false
     },
     "contact_no": {
       "type": "string",

@@ -60,12 +60,12 @@ function isLegacySyntheticEmpId(value) {
 
 /**
  * Excel stores dates as serial numbers (days since 1900-01-01).
- * Convert to ISO date string, or return fallback.
+ * Convert to ISO date string, or return null.
  */
-function excelSerialToIso(value, fallback = '1970-01-01') {
-  if (!value && value !== 0) return fallback;
+function excelSerialToIso(value) {
+  if (!value && value !== 0) return null;
   const asString = String(value).trim();
-  if (!asString) return fallback;
+  if (!asString) return null;
 
   // Already ISO-like
   const isoMatch = asString.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -93,9 +93,8 @@ function excelSerialToIso(value, fallback = '1970-01-01') {
   const parsed = new Date(asString);
   if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
 
-  return fallback;
+  return null;
 }
-
 
 
 async function getEmployeeRoleId(strapi) {
