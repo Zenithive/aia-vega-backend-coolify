@@ -26,12 +26,12 @@
     },
     "active": {
       "type": "enumeration",
+      "required": true,
+      "default": "published",
       "enum": [
         "published",
         "unpublished"
-      ],
-      "default": "published",
-      "required": true
+      ]
     },
     "courses": {
       "type": "relation",
@@ -90,6 +90,10 @@
         }
       },
       "inversedBy": "course_assignments"
+    },
+    "course_version": {
+      "type": "string",
+      "required": true
     }
   }
 }

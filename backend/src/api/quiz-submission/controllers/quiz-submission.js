@@ -150,6 +150,18 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null)
           }
 
           // -----------------------------
+          // DESCRIPTIVE LOGIC
+          // -----------------------------
+          if (ans.question_type === "Descriptive") {
+            // Descriptive answers are not auto-graded: any non-empty answer earns the points.
+            const userText = normalizeToken(ans.user_answer_for_descriptive_question);
+
+            if (userText) {
+              earnedPoints += pts;
+            }
+          }
+
+          // -----------------------------
           // MULTI-SELECT LOGIC
           // -----------------------------
           if (ans.question_type === "Multiple_select") {
@@ -288,7 +300,14 @@ function buildAnswerCorrectnessMap(course, answers) {
       const submittedChoice = buildEquivalentChoiceTokens(q, ans?.selected_answer_for_multiChoice);
       const correctChoice = buildEquivalentChoiceTokens(q, q?.correct_answer);
       isCorrect = [...submittedChoice].some((token) => correctChoice.has(token));
-    } else if (ans?.question_type === 'Multiple_select') {
+    }
+    else if (ans?.question_type === 'Descriptive') {
+      // const userText = normalizeToken(ans?.user_answer_for_descriptive_question);
+      // const correctText = normalizeToken(q?.correct_answer);
+
+      isCorrect = true;
+    } 
+    else if (ans?.question_type === 'Multiple_select') {
       const userSelected = extractSubmittedMultiSelectValues(ans?.selected_answer_for_multiSelect);
       const correctOptions = Array.isArray(q?.correct_multiSelect_answers) ? q.correct_multiSelect_answers : [];
 
@@ -405,30 +424,44 @@ module.exports = createCoreController(
           time_taken_minutes: timeTakenRaw,
           submitted_at: submittedAtRaw,
           submission_type: submissionTypeRaw,
+          course_version: courseVersionRaw,
         } = ctx.request.body;
 
           // Accept either numeric id or documentId from frontend
           const courseInput = courseIdParam ?? courseParam;
           const courseId = await resolveCourseNumericId(strapi, courseInput);
           const userIdNum = Number(userId);
-  // Enforce minimum 1 minute — never store 0
-  const time_taken_minutes = Math.max(1, Math.round(Number(timeTakenRaw ?? 0)));
-  const submitted_at = submittedAtRaw ? new Date(submittedAtRaw) : new Date();
+          // Enforce minimum 1 minute — never store 0
+          const time_taken_minutes = Math.max(1, Math.round(Number(timeTakenRaw ?? 0)));
+          const submitted_at = submittedAtRaw ? new Date(submittedAtRaw) : new Date();
 
-        // Validate and normalise submission_type against schema enum values
-        const VALID_SUBMISSION_TYPES = ['Auto Submit or Leave', 'Time Limit Exceed', 'Manual Submit'];
-        const submission_type = VALID_SUBMISSION_TYPES.includes(submissionTypeRaw)
-          ? submissionTypeRaw
-          : 'Manual Submit';
+          // Version the learner actually took: read from the course itself; payload value is only a fallback.
+          let course_version = null;
+          if (courseId) {
+            const courseRow = await strapi.db.query('api::course.course').findOne({
+              where: { id: Number(courseId) },
+              select: ['id', 'course_version'],
+            });
+            course_version = courseRow?.course_version || null;
+          }
+          if (!course_version && courseVersionRaw != null && String(courseVersionRaw).trim()) {
+            course_version = String(courseVersionRaw).trim();
+          }
 
-        if (!userIdNum || !courseId) {
-          return ctx.badRequest("userId and courseId required");
-        }
+          // Validate and normalise submission_type against schema enum values
+          const VALID_SUBMISSION_TYPES = ['Auto Submit or Leave', 'Time Limit Exceed', 'Manual Submit'];
+          const submission_type = VALID_SUBMISSION_TYPES.includes(submissionTypeRaw)
+            ? submissionTypeRaw
+            : 'Manual Submit';
 
-        // ------------------------------------------------------
-        // 0. If admin rejected a reattempt within the last 24h → block assessment (after 24h user can request again)
-        // ------------------------------------------------------
-        const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+          if (!userIdNum || !courseId) {
+            return ctx.badRequest("userId and courseId required");
+          }
+
+          // ------------------------------------------------------
+          // 0. If admin rejected a reattempt within the last 24h → block assessment (after 24h user can request again)
+          // ------------------------------------------------------
+          const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
           const [course, rejectedList, lastSubmission] = await Promise.all([
           strapi.db.query("api::course.course").findOne({
@@ -626,7 +659,12 @@ module.exports = createCoreController(
               selected_answer_for_multiSelect: a.selected_answer_for_multiSelect ?? [],
             };
           }
-
+          if (questionType === 'Descriptive') {
+            return {
+              ...base,
+              user_answer_for_descriptive_question: a.user_answer_for_descriptive_question ?? '',
+            };
+          }
           return {
             ...base,
             selected_answer_for_multiChoice: a.selected_answer_for_multiChoice ?? '',
@@ -655,6 +693,7 @@ module.exports = createCoreController(
               submitted_at,
               time_taken_minutes,
               submission_type,
+              course_version,
               publishedAt: new Date(), // publish immediately, not draft
             }),
           }

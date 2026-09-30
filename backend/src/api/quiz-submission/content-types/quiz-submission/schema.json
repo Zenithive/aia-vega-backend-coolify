@@ -59,6 +59,10 @@
         "Time Limit Exceed",
         "Manual Submit"
       ]
+    },
+    "course_version": {
+      "type": "string",
+      "required": true
     }
   }
 }

@@ -41,12 +41,10 @@ const CONTENT_TYPE_ID_CONFIG = {
         quiz_questions: { idKey: 'question_id', prefix: 'q', nested: {} },
       },
     },
-    // feedback is single component; feedback_question is inside it (repeatable)
-    feedback: {
-      nested: {
-        feedback_question: { idKey: 'question_id', prefix: 'fb', nested: {} },
-      },
-    },
+  },
+  // Feedback questions live on Feedback Templates (course.feedback only links a template).
+  'api::feedback-template.feedback-template': {
+    questions: { idKey: 'question_id', prefix: 'fb', nested: {} },
   },
   'api::unit-location.unit-location': {
     Units: {
@@ -137,21 +135,6 @@ function forceRegenerateCourseIds(values) {
     });
   }
 
-  // feedback can be single component object or repeatable array depending on schema evolution
-  const feedbackItems = Array.isArray(values.feedback)
-    ? values.feedback
-    : (values.feedback && typeof values.feedback === 'object' ? [values.feedback] : []);
-  feedbackItems.forEach((fb) => {
-    if (!fb || typeof fb !== 'object') return;
-    if (Array.isArray(fb.feedback_question)) {
-      fb.feedback_question.forEach((fq) => {
-        if (!fq || typeof fq !== 'object') return;
-        fq.question_id = regen('fb');
-        changed = true;
-      });
-    }
-  });
-
   return changed;
 }
 
@@ -229,8 +212,17 @@ function AutoFillComponentIds({ slug, model }) {
 
     if (isCreateRoute || isCloneRoute) wasCreateRouteRef.current = true;
 
+    // Duplicated feedback template: question_id is unique, so the copy needs fresh ids.
+    const isFeedbackTemplateCloneRoute =
+      uid === 'api::feedback-template.feedback-template' &&
+      /\/content-manager\/collection-types\/api::feedback-template\.feedback-template\/clone\/[^/]+$/i.test(path);
+    if (uid === 'api::feedback-template.feedback-template' && !isFeedbackTemplateCloneRoute) {
+      forceRegeneratedOnceRef.current = false;
+    }
+
     const shouldForceRegenerate =
-      uid === 'api::course.course' && isCloneRoute && !forceRegeneratedOnceRef.current;
+      ((uid === 'api::course.course' && isCloneRoute) || isFeedbackTemplateCloneRoute) &&
+      !forceRegeneratedOnceRef.current;
 
     didFillRef.current = false;
     const copy = JSON.parse(JSON.stringify(values));

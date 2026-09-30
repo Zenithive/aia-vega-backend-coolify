@@ -1,3 +1,5 @@
+//@ts-nocheck
+
 "use strict";
 
 const { createCoreController } = require("@strapi/strapi").factories;
@@ -72,12 +74,25 @@ module.exports = createCoreController(
       const normalizedBody = body?.data ?? body;
       const { userId, courseId } = normalizedBody;
 
-      strapi.log.info({ userId, courseId, path: ctx?.request?.path || ctx?.path }, '[quiz-reattempt send] frontend request received');
+      // CHANGE 1: Extract courseVersion / course_version from normalizedBody or body
+      // Payload value is only a fallback; the course's own course_version is used when available (resolved below).
+      let courseVersion =
+        normalizedBody?.course_version ??
+        body?.course_version ??
+        null;
+
+      strapi.log.info({ userId, courseId, courseVersion, path: ctx?.request?.path || ctx?.path }, '[quiz-reattempt send] frontend request received');
 
       if (!userId || !courseId) {
         strapi.log.warn({ userId, courseId }, '[quiz-reattempt send] missing userId or courseId');
         return ctx.badRequest("userId and courseId required");
       }
+
+      const courseRow = await strapi.db.query("api::course.course").findOne({
+        where: { id: Number(courseId) },
+        select: ["id", "course_version"],
+      });
+      if (courseRow?.course_version) courseVersion = courseRow.course_version;
 
       const existing = await strapi.db
         .query("api::quiz-reattempt-request.quiz-reattempt-request")
@@ -132,15 +147,17 @@ module.exports = createCoreController(
         return ctx.badRequest("An approved reattempt already exists for your next attempt. You can proceed to take the quiz.");
       }
 
-      strapi.log.info({ userId, courseId, nextAttempt }, '[quiz-reattempt send] creating request');
+      strapi.log.info({ userId, courseId, courseVersion, nextAttempt }, '[quiz-reattempt send] creating request');
 
       let request;
       try {
+        // CHANGE 2: Pass course_version inside dataset for request creation
         request = await createQuizReattemptRequest(
           strapi,
           {
             users_permissions_user: Number(userId),
             course: Number(courseId),
+            course_version: courseVersion ? String(courseVersion) : null,
             request_status: "Pending",
             requested_for_attempt: nextAttempt,
           },
@@ -155,6 +172,7 @@ module.exports = createCoreController(
         requestId: request?.id,
         userId,
         courseId,
+        courseVersion,
         nextAttempt,
         adminCreated: request?.adminCreated,
       }, '[quiz-reattempt send] request created successfully');
@@ -172,7 +190,8 @@ module.exports = createCoreController(
           userName = userRow?.username || userRow?.email || null;
         } catch { /* keep null */ }
 
-        const meta = { courseId, userId, courseTitle, userName };
+        // CHANGE 3: Pass courseVersion into notification metadata
+        const meta = { courseId, userId, courseVersion, courseTitle, userName };
         notifUtil.sendNotification(
           "quiz_reattempt_requested",
           "Quiz Reattempt Requested",
@@ -191,12 +210,14 @@ module.exports = createCoreController(
     },
 
     async checkPending(ctx) {
-      const { userId, courseId } = ctx.query;
+      // CHANGE 4: Extract courseVersion from query params in checkPending
+      const { userId, courseId, course_version } = ctx.query;
       if (!userId || !courseId) {
         return ctx.badRequest("userId and courseId are required");
       }
       const uid = Number(userId);
       const cid = Number(courseId);
+      const cVersion =course_version || null;
 
       const lastSubmission = await strapi.db
         .query("api::quiz-submission.quiz-submission")
@@ -206,7 +227,7 @@ module.exports = createCoreController(
         });
       const nextAttempt = lastSubmission ? lastSubmission.attempt_number + 1 : 1;
 
-      strapi.log.info({ uid, cid, nextAttempt }, '[quiz-reattempt checkPending]');
+      strapi.log.info({ uid, cid, cVersion, nextAttempt }, '[quiz-reattempt checkPending]');
 
       const [pending, approved, latestRejected] = await Promise.all([
         strapi.db

@@ -44,6 +44,10 @@
     "adminCreated": {
       "type": "boolean",
       "default": false
+    },
+    "course_version": {
+      "type": "string",
+      "required": true
     }
   }
 }

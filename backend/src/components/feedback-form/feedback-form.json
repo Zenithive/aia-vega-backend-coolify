@@ -5,11 +5,6 @@
   },
   "options": {},
   "attributes": {
-    "feedback_question": {
-      "type": "component",
-      "component": "feedback-form.question",
-      "repeatable": true
-    },
     "language": {
       "type": "enumeration",
       "required": true,
@@ -25,6 +20,11 @@
       "options": {
         "required": true
       }
+    },
+    "feedback_template": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::feedback-template.feedback-template"
     }
   },
   "config": {}

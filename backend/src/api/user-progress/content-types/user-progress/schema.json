@@ -77,6 +77,9 @@
       "relation": "oneToOne",
       "target": "api::feedback-submission.feedback-submission",
       "mappedBy": "user_progress"
+    },
+    "course_version": {
+      "type": "string"
     }
   }
 }

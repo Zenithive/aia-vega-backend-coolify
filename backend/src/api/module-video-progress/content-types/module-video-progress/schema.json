@@ -50,6 +50,9 @@
     "last_updated": {
       "type": "datetime",
       "required": true
+    },
+    "course_version": {
+      "type": "string"
     }
   }
 }

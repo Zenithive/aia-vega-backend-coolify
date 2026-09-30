@@ -32,6 +32,10 @@
       "relation": "oneToOne",
       "target": "api::user-progress.user-progress",
       "inversedBy": "feedback_submission"
+    },
+    "course_version": {
+      "type": "string",
+      "required": true
     }
   }
 }

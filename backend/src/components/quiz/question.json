@@ -19,7 +19,8 @@
       "required": true,
       "enum": [
         "Multiple_choice",
-        "Multiple_select"
+        "Multiple_select",
+        "Descriptive"
       ]
     },
     "order": {
@@ -27,6 +28,16 @@
     },
     "options": {
       "type": "component",
+      "conditions": {
+        "visible": {
+          "!=": [
+            {
+              "var": "question_type"
+            },
+            "Descriptive"
+          ]
+        }
+      },
       "component": "quiz.options",
       "repeatable": true
     },
@@ -34,11 +45,11 @@
       "type": "string",
       "conditions": {
         "visible": {
-          "==": [
+          "!=": [
             {
               "var": "question_type"
             },
-            "Multiple_choice"
+            "Multiple_select"
           ]
         }
       },

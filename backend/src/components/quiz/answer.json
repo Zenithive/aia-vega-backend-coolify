@@ -19,7 +19,8 @@
       "required": true,
       "enum": [
         "Multiple_choice",
-        "Multiple_select"
+        "Multiple_select",
+        "Descriptive"
       ]
     },
     "selected_answer_for_multiChoice": {
@@ -41,7 +42,6 @@
     "correct": {
       "type": "boolean"
     },
-
     "selected_answer_for_multiSelect": {
       "type": "json",
       "conditions": {
@@ -51,6 +51,19 @@
               "var": "question_type"
             },
             "Multiple_select"
+          ]
+        }
+      }
+    },
+    "user_answer_for_descriptive_question": {
+      "type": "string",
+      "conditions": {
+        "visible": {
+          "==": [
+            {
+              "var": "question_type"
+            },
+            "Descriptive"
           ]
         }
       }

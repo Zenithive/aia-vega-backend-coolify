@@ -112,6 +112,8 @@ export default function QuizReattemptRequestsPage() {
     const courseAttrs = course.attributes ?? course;
     const userName = userAttrs.username ?? userAttrs.email ?? '—';
     const courseTitle = courseAttrs.title ?? '—';
+    // Version stored on the request; older requests fall back to the course's current version.
+    const courseVersion = attrs.course_version || courseAttrs.course_version || '—';
     const approvedBy = attrs.approved_by?.data ?? attrs.approved_by ?? {};
     const approvedByAttrs = approvedBy.attributes ?? approvedBy;
     const approvedByName = approvedByAttrs.firstname || approvedByAttrs.username || approvedByAttrs.email || approvedByAttrs.lastname
@@ -119,7 +121,7 @@ export default function QuizReattemptRequestsPage() {
       : 'Not reviewed';
     const statusRaw = attrs.request_status ?? entry.request_status ?? 'Pending';
     const statusVal = typeof statusRaw === 'string' ? statusRaw : 'Pending';
-    return { userName, courseTitle, statusVal, attrs, approvedByName };
+    return { userName, courseTitle, courseVersion, statusVal, attrs, approvedByName };
   };
 
   const filteredList = useMemo(() => {
@@ -300,6 +302,7 @@ export default function QuizReattemptRequestsPage() {
                       }
                     },
                     { key: 'courseTitle', label: 'Course', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).courseTitle}</Typography> },
+                    { key: 'courseVersion', label: 'Version', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).courseVersion}</Typography> },
                     { key: 'requested_for_attempt', label: 'Requested attempt', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).attrs.requested_for_attempt ?? '—'}</Typography> },
                     { key: 'statusVal', label: 'Status', render: (val, row) => {
                         const { statusVal } = getDisplayValues(row);

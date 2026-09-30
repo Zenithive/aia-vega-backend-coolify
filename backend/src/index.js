@@ -815,6 +815,14 @@ module.exports = {
       strapi.log.error('User-progress automation bootstrap failed:', e?.message || e);
     }
 
+    // Stamp course_version (from the linked course) on user-progress and module-video-progress rows
+    try {
+      const { registerCourseVersionStamp } = require('./lifecycles/course-version-stamp');
+      registerCourseVersionStamp(strapi);
+    } catch (e) {
+      strapi.log.error('Course-version stamp bootstrap failed:', e?.message || e);
+    }
+
     // Feedback-submission: admin notification when created via Content Manager
     try {
       const { registerFeedbackSubmissionLifecycles } = require('./lifecycles/feedback-submission-notification');

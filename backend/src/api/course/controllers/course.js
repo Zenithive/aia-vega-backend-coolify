@@ -194,7 +194,8 @@ module.exports = createCoreController('api::course.course', ({ strapi }) => ({
         },
         thumbnail: true,
         company: { fields: ['name'] },
-        feedback: { populate: '*' },
+        // Feedback questions live on the linked Feedback Template
+        feedback: { populate: { feedback_template: { populate: { questions: true } } } },
       },
     };
 
@@ -239,7 +240,8 @@ module.exports = createCoreController('api::course.course', ({ strapi }) => ({
         },
         thumbnail: true,
         company: { fields: ['name'] },
-        feedback: { populate: '*' },
+        // Feedback questions live on the linked Feedback Template
+        feedback: { populate: { feedback_template: { populate: { questions: true } } } },
       },
     };
 

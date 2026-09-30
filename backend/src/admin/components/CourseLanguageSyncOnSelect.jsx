@@ -1,3 +1,5 @@
+//@ts-nocheck
+
 // One entry per language for quiz/feedback/orientation. When removing languages, entries for removed languages are dropped.
 function syncComponentArray(current, languages, createPlaceholder) {
   const N = languages.length;
@@ -216,7 +218,6 @@ function createFeedbackPlaceholder(lang) {
   return {
     __temp_key__: `lang-${lang}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     language: lang,
-    feedback_question: [],
   };
 }
 
@@ -262,10 +263,7 @@ function buildSyncedValues(values, nextLanguages, prevLanguages) {
     quiz_questions: ensureArray(q.quiz_questions),
     quiz_instruction: ensureArray(q.quiz_instruction),
   }));
-  const normalizedFeedback = ensureArray(syncedFeedback).map((f) => ({
-    ...f,
-    feedback_question: ensureArray(f.feedback_question),
-  }));
+  const normalizedFeedback = ensureArray(syncedFeedback);
   const normalizedOrientation = ensureArray(syncedOrientation).map((o) => ({
     ...(o || {}),
     topics_to_cover: ensureRichTextString(o?.topics_to_cover),
@@ -381,7 +379,6 @@ function expandLastFeedbackSetToLanguages(feedback, languages) {
     return {
       ...cleaned,
       language: cleaned.language,
-      feedback_question: ensureArray(cleaned.feedback_question),
       __temp_key__: `fb-expand-${idx}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     };
   });

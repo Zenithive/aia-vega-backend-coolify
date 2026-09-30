@@ -1,0 +1,23 @@
+{
+  "kind": "collectionType",
+  "collectionName": "feedback_templates",
+  "info": {
+    "singularName": "feedback-template",
+    "pluralName": "feedback-templates",
+    "displayName": "Feedback Templates"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string"
+    },
+    "questions": {
+      "type": "component",
+      "component": "feedback-form.question",
+      "repeatable": true
+    }
+  }
+}

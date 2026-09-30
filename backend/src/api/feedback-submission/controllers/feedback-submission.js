@@ -67,6 +67,7 @@ module.exports = createCoreController("api::feedback-submission.feedback-submiss
       nested.users_permissions_user ?? nested.userId ??
       rawBody.users_permissions_user ?? rawBody.userId ?? 0
     );
+    const courseVersionRaw = nested.course_version ?? rawBody.course_version ?? null;
     const rawAnswers = Array.isArray(nested.answers) ? nested.answers
       : Array.isArray(rawBody.answers) ? rawBody.answers
       : nested.answers ?? rawBody.answers;
@@ -87,15 +88,17 @@ module.exports = createCoreController("api::feedback-submission.feedback-submiss
 
     if (!answers.length) return ctx.badRequest("At least one answer required");
 
-    // ADDED: fetch course title so we can store it on feedback-submission
+    // Fetch course title + version. The version stored is the course's own (payload value is only a fallback).
     let courseTitle = null;
+    let courseVersion = courseVersionRaw != null && String(courseVersionRaw).trim() ? String(courseVersionRaw).trim() : null;
     try {
       const courseEntity = await strapi.entityService.findOne(
         "api::course.course",
         Number(courseId),
-        { fields: ["title"] }
+        { fields: ["title", "course_version"] }
       );
       courseTitle = courseEntity?.title || null;
+      if (courseEntity?.course_version) courseVersion = String(courseEntity.course_version);
     } catch (err) {
       strapi.log.warn('Could not fetch course title for feedback-submission:', err);
     }
@@ -111,6 +114,7 @@ module.exports = createCoreController("api::feedback-submission.feedback-submiss
             answers,
             course: Number(courseId),
             users_permissions_user: Number(userId),
+            course_version: courseVersion,
             publishedAt: new Date(),
           }),
         }
@@ -169,7 +173,7 @@ module.exports = createCoreController("api::feedback-submission.feedback-submiss
       const feedbackCourseTitle = feedbackCourse?.title || courseTitle || null;
       const feedbackCompanyCandidates = Array.isArray(feedbackCourse?.company) ? feedbackCourse.company : feedbackCourse?.company ? [feedbackCourse.company] : [];
       const feedbackCompany = feedbackCompanyCandidates[0]?.name || null;
-      const meta = { courseId, userId, courseDocumentId: feedbackCourseDocumentId, company: feedbackCompany, courseTitle: feedbackCourseTitle };
+      const meta = { courseId, userId, courseDocumentId: feedbackCourseDocumentId, company: feedbackCompany, courseTitle: feedbackCourseTitle ,courseVersion};
       // @ts-ignore
       const notifUtil = strapi.utils?.notification;
       if (notifUtil) {
