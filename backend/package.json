@@ -36,7 +36,7 @@
     "@strapi/plugin-graphql": "^5.40.0",
     "@strapi/plugin-users-permissions": "^5.40.0",
     "@strapi/provider-email-nodemailer": "^5.37.1",
-    "@strapi/strapi": "^5.40.0",
+    "@strapi/strapi": "^5.56.0",
     "fs-extra": "^10.0.0",
     "mime-types": "^2.1.27",
     "nodemailer": "^8.0.5",
