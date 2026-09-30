@@ -1,3 +1,4 @@
+//@ts-nocheck
 'use strict';
 
 /**
@@ -192,7 +193,6 @@ module.exports = createCoreController('api::course.course', ({ strapi }) => ({
           }
         },
         thumbnail: true,
-        prerequisite_courses: { fields: ['title'], populate: { thumbnail: true } },
         company: { fields: ['name'] },
         feedback: { populate: '*' },
       },
@@ -238,7 +238,6 @@ module.exports = createCoreController('api::course.course', ({ strapi }) => ({
           }
         },
         thumbnail: true,
-        prerequisite_courses: { fields: ['title'], populate: { thumbnail: true } },
         company: { fields: ['name'] },
         feedback: { populate: '*' },
       },

@@ -29,15 +29,12 @@
     },
     "active": {
       "type": "enumeration",
-      "enum": ["published", "unpublished"],
+      "required": true,
       "default": "published",
-      "required": true
-    },
-    "prerequisite_courses": {
-      "type": "relation",
-      "relation": "manyToMany",
-      "target": "api::course.course",
-      "description": "Courses to complete before this one"
+      "enum": [
+        "published",
+        "unpublished"
+      ]
     },
     "company": {
       "type": "relation",
@@ -72,14 +69,6 @@
       "component": "quiz.quiz",
       "repeatable": true
     },
-    "course_duration_min": {
-      "type": "customField",
-      "customField": "global::number-range",
-      "options": {
-        "positiveOnly": true,
-        "required": true
-      }
-    },
     "min_passing_score": {
       "type": "customField",
       "customField": "global::number-range",
@@ -99,6 +88,16 @@
       "relation": "manyToMany",
       "target": "api::course-assignment.course-assignment",
       "inversedBy": "courses"
+    },
+    "course_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "required": true
+    },
+    "group_id": {
+      "type": "string",
+      "required": true
     }
   }
 }

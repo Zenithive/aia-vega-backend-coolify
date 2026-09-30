@@ -8,6 +8,11 @@ const COURSE_ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
 const { ensureDepartmentForUser } = require('./utils/ensure-department-for-user');
 const { syncCourseLanguageComponents } = require('./utils/sync-course-language-components');
 const { autoGenerateComponentIds } = require('./utils/auto-generate-component-ids');
+const {
+  applyCourseGroupId,
+  backfillMissingCourseGroupIds,
+  lockGroupIdFieldInAdmin,
+} = require('./utils/course-group-id');
 const { syncEmployeesFromHrms } = require('./cron-tasks/sync-employees');
 const { syncVegaEmployees } = require('./cron-tasks/sync-vega-employees');
 const { populateAnswerCorrectField } = require('./utils/quiz-submission-correctness');
@@ -385,6 +390,15 @@ module.exports = {
       type: 'json',
     });
 
+    // Course lineage: create → new UUID group_id; clone (duplicate) → source's group_id; update → group_id immutable.
+    // course_version is never generated or modified; the user enters it manually.
+    strapi.documents.use(async (context, next) => {
+      if (context.uid === COURSE_UID && ['create', 'clone', 'update'].includes(context.action)) {
+        await applyCourseGroupId(strapi, context);
+      }
+      return await next();
+    });
+
     // Course create/update: strip course_assignments only for duplicate-like saves (URL/title, join-table infer, or X-Vega-Duplicate-Course from admin).
     strapi.documents.use(async (context, next) => {
       if (context.uid === COURSE_UID && (context.action === 'create' || context.action === 'update')) {
@@ -547,6 +561,13 @@ module.exports = {
     installGeneratedAdminTitlePatcher(strapi);
 
     suppressEmailServiceIfDisabled(strapi);
+
+    backfillMissingCourseGroupIds(strapi).catch((e) =>
+      strapi.log.error('[course-group-id] backfill failed:', e?.message || e)
+    );
+    lockGroupIdFieldInAdmin(strapi).catch((e) =>
+      strapi.log.warn('[course-group-id] could not make group_id read-only in admin:', e?.message || e)
+    );
 
     const uploadsDir = path.join(strapi.dirs.static.public, 'uploads');
     fs.mkdirSync(uploadsDir, { recursive: true });

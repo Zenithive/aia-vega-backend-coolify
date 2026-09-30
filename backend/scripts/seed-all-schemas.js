@@ -433,7 +433,7 @@ async function run() {
   }
   console.log('Townhalls:', COUNT);
 
-  // --- 14. Course (COUNT) - required: title, description, active, course_category, modules, course_duration_min, min_passing_score, course_language; feedback = component with language + feedback_question ---
+  // --- 14. Course (COUNT) - required: title, description, active, course_category, modules, course_version, min_passing_score, course_language (group_id auto-generated); feedback = component with language + feedback_question ---
   const courseIds = [];
   const minimalModule = {
     language: 'English',
@@ -475,7 +475,7 @@ async function run() {
         description: [{ type: 'paragraph', children: [{ type: 'text', text: `Course description ${i + 1}.` }] }],
         active: true,
         course_category: ['Mandatory', 'Orientation', 'Other'][i % 3],
-        course_duration_min: 30 + (i % 5) * 10,
+        course_version: '1.0',
         min_passing_score: 60,
         course_language: ['English', 'Hindi', 'Gujarati'].slice(0, (i % 3) + 1),
         modules: [{ ...minimalModule, title: `Course ${i + 1} - Module 1` }],

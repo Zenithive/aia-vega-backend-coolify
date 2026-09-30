@@ -11,6 +11,17 @@ import {
   clearDuplicateCourseFlow,
 } from '../utils/vegaDuplicateCourseFetch.js';
 
+function generateUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback for non-secure contexts (plain http on a non-localhost host).
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 function generateId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -195,6 +206,8 @@ function AutoFillComponentIds({ slug, model }) {
   const wasCreateRouteRef = useRef(false);
   /** After we strip inherited assignments once, allow the user to add assignments manually before save. */
   const strippedDuplicateCourseAssignmentsRef = useRef(false);
+  /** Duplicate (clone) form: clear inherited course_version once so the user enters the new version. */
+  const clearedCloneCourseVersionRef = useRef(false);
 
   useEffect(() => {
     if (!config || !values || typeof setValues !== 'function') return;
@@ -230,6 +243,23 @@ function AutoFillComponentIds({ slug, model }) {
         strippedDuplicateCourseAssignmentsRef.current = false;
         forceRegeneratedOnceRef.current = false;
         wasCreateRouteRef.current = false;
+        clearedCloneCourseVersionRef.current = false;
+      }
+
+      // Brand-new course: new lineage. Duplicates keep the source group_id (server enforces it too).
+      if (isCreateRoute && !isCloneRoute && !String(copy.group_id ?? '').trim()) {
+        copy.group_id = generateUuid();
+        didFillRef.current = true;
+      }
+
+      // Wait until the source course is loaded into the form (title is required, so it is always present).
+      const cloneSourceLoaded = String(copy.title ?? '').trim() !== '';
+      if (isCloneRoute && cloneSourceLoaded && !clearedCloneCourseVersionRef.current) {
+        clearedCloneCourseVersionRef.current = true;
+        if (String(copy.course_version ?? '').trim()) {
+          copy.course_version = '';
+          didFillRef.current = true;
+        }
       }
 
       if (!strippedDuplicateCourseAssignmentsRef.current && hasCourseAssignmentsInFormValues(copy)) {
