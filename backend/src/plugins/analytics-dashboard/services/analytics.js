@@ -126,7 +126,7 @@ async function loadVideoProgressByUser(strapi, userIds, courseIdStr) {
  * by a newer assignment (old assignment marked active='unpublished').
  *
  * Only Individual-type assignments are checked because all assignment types
- * (Dept, Location, Workflow) automatically create per-user Individual entries.
+ * (Dept, Location) automatically create per-user Individual entries.
  */
 async function getActivelyAssignedUserIdsForCourse(strapi, courseIdStr) {
   const activeUserIds = new Set();

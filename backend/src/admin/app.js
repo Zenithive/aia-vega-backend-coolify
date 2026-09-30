@@ -24,12 +24,7 @@
 import CourseLanguageSyncOnSelect from './components/CourseLanguageSyncOnSelect.jsx';
 import AutoFillComponentIds from './components/AutoFillComponentIds.jsx';
 import HideAddButtonsForQuizFeedback from './components/HideAddButtonsForQuizFeedback.jsx';
-import CourseWorkflowOfflineModuleSyncOnSelect from './components/CourseWorkflowOfflineModuleSyncOnSelect.jsx';
-import CourseWorkflowDisableOfflineModuleAddButtons from './components/CourseWorkflowDisableOfflineModuleAddButtons.jsx';
-import WorkflowPrerequisitePickerInput from './components/WorkflowPrerequisitePickerInput.jsx';
-import CourseWorkflowModuleIndexLabel from './components/CourseWorkflowModuleIndexLabel';
 import CourseAssignmentCompanyFilter from './components/CourseAssignmentCompanyFilter.jsx';
-import CourseWorkflowCompanyFilter from './components/CourseWorkflowCompanyFilter.jsx';
 import EventCompanyFilter from './components/EventCompanyFilter.jsx';
 import HolidayCompanyFilter from './components/HolidayCompanyFilter.jsx';
 import CourseAssignmentExcelUserUpload from './components/CourseAssignmentExcelUserUpload.jsx';
@@ -439,7 +434,7 @@ export default {
       },
     });
 
-    // Custom field: prerequisite module picker for Course Workflow — shows other modules in the same form
+    // Custom field used by the course.workflow-module schema (schema is retained; registration required for admin to load)
     app.customFields.register({
       name: 'workflow-prerequisite-picker',
       type: 'json',
@@ -474,31 +469,10 @@ export default {
         name: 'HideAddButtonsForQuizFeedback',
         Component: HideAddButtonsForQuizFeedback,
       });
-      // For Course Workflow: create offline_module entries instantly when users are selected in Offline mode
-      contentManager.injectComponent('editView', 'right-links', {
-        name: 'CourseWorkflowOfflineModuleSyncOnSelect',
-        Component: CourseWorkflowOfflineModuleSyncOnSelect,
-      });
-      // For Course Workflow: disable offline_module add-entry controls in Offline modules
-      // because rows are auto-managed from selected users.
-      contentManager.injectComponent('editView', 'right-links', {
-        name: 'CourseWorkflowDisableOfflineModuleAddButtons',
-        Component: CourseWorkflowDisableOfflineModuleAddButtons,
-      });
-      // For Course Workflow: prefix each module entry label with its 1-based index (e.g. "1 - Online")
-      contentManager.injectComponent('editView', 'right-links', {
-        name: 'CourseWorkflowModuleIndexLabel',
-        Component: CourseWorkflowModuleIndexLabel,
-      });
       // For Course Assignment: filter courses picker to only show courses of the selected company
       contentManager.injectComponent('editView', 'right-links', {
         name: 'CourseAssignmentCompanyFilter',
         Component: CourseAssignmentCompanyFilter,
-      });
-      // For Course Workflow: filter users and online module course relation by selected company
-      contentManager.injectComponent('editView', 'right-links', {
-        name: 'CourseWorkflowCompanyFilter',
-        Component: CourseWorkflowCompanyFilter,
       });
       // For Event: filter work_locations to only show locations of the selected company
       contentManager.injectComponent('editView', 'right-links', {

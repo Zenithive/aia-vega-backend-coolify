@@ -3,8 +3,6 @@
 'use strict';
 
 const COURSE_ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
-const COURSE_WORKFLOW_UID = 'api::course-workflow.course-workflow';
-const WORKFLOW_MODULE_COMPONENT_UID = 'course.workflow-module';
 const COURSE_UID = 'api::course.course';
 const DEPARTMENT_UID = 'api::department.department';
 const WORK_LOCATION_UID = 'api::work-location.work-location';
@@ -150,28 +148,6 @@ function parseRawCompanyIds(rawCompanyId) {
   });
 
   return uniq;
-}
-
-function getExcludeCourseFilter(rawExcludeCourseIds) {
-  const ids = parseRawCompanyIds(rawExcludeCourseIds);
-  if (ids.length === 0) return null;
-
-  const numericIds = [];
-  const docIds = [];
-
-  ids.forEach((raw) => {
-    const numId = parseInt(raw, 10);
-    const isDocId = Number.isNaN(numId) || raw.length > 10;
-    if (isDocId) docIds.push(raw);
-    else numericIds.push(numId);
-  });
-
-  const clauses = [];
-  if (numericIds.length > 0) clauses.push({ id: { $notIn: numericIds } });
-  if (docIds.length > 0) clauses.push({ documentId: { $notIn: docIds } });
-
-  if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { $and: clauses };
 }
 
 function mergeFilterIfPresent(baseFilter, nextFilter) {
@@ -722,30 +698,16 @@ module.exports = (plugin) => {
     const { model: sourceUid, targetField } = ctx.params;
     const id = ctx.request?.query?.id;
     const selectedCompanyId = ctx.request?.query?.companyId;
-    const excludeCourseIds = ctx.request?.query?.excludeCourseIds;
     const sourceModel = sourceUid ? strapi.getModel(sourceUid) : null;
     const targetSchema = sourceModel?.attributes?.[targetField];
     let targetUid = targetSchema?.target;
 
-    // Component relation fallback for workflow modules (e.g. targetField like "modules.course")
-    if (!targetUid && sourceUid === COURSE_WORKFLOW_UID && typeof targetField === 'string') {
-      if (targetField === 'users_permissions_users') targetUid = USER_UID;
-      else if (targetField === 'course' || targetField.endsWith('.course') || targetField.includes('course')) targetUid = COURSE_UID;
-    }
-
-    // Handle component UID directly (course.workflow-module/course)
-    if (!targetUid && sourceUid === WORKFLOW_MODULE_COMPONENT_UID && targetField === 'course') {
-      targetUid = COURSE_UID;
-    }
-
-    const isWorkflowSource =
+    const isCompanyScopedSource =
       sourceUid === COURSE_ASSIGNMENT_UID ||
-      sourceUid === COURSE_WORKFLOW_UID ||
-      sourceUid === WORKFLOW_MODULE_COMPONENT_UID ||
       sourceUid === EVENT_UID ||
       sourceUid === HOLIDAY_UID;
 
-    if (isWorkflowSource && selectedCompanyId && targetUid) {
+    if (isCompanyScopedSource && selectedCompanyId && targetUid) {
       const companyFilter = await getCompanyScopedFilter(strapi, targetUid, selectedCompanyId);
       if (companyFilter) {
         ctx.state._relationCompanyFilter = { uid: targetUid, filter: companyFilter };
@@ -759,21 +721,9 @@ module.exports = (plugin) => {
       }
     }
 
-    if (
-      (sourceUid === COURSE_WORKFLOW_UID || sourceUid === WORKFLOW_MODULE_COMPONENT_UID) &&
-      targetUid === COURSE_UID &&
-      excludeCourseIds
-    ) {
-      const excludeFilter = getExcludeCourseFilter(excludeCourseIds);
-      if (excludeFilter) {
-        ctx.state._workflowCourseExcludeFilter = { uid: COURSE_UID, filter: excludeFilter };
-      }
-    }
-
     let scopedRelationFilter = null;
     scopedRelationFilter = mergeFilterIfPresent(scopedRelationFilter, ctx.state._relationCompanyFilter?.filter);
     scopedRelationFilter = mergeFilterIfPresent(scopedRelationFilter, ctx.state._departmentCompanyFilter?.filter);
-    scopedRelationFilter = mergeFilterIfPresent(scopedRelationFilter, ctx.state._workflowCourseExcludeFilter?.filter);
 
     if (!scopedRelationFilter) {
       return runFindAvailableSafely(ctx, targetUid);
