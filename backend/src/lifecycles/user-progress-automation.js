@@ -1,3 +1,4 @@
+//@ts-nocheck
 'use strict';
 
 const { recomputeProgress, ensureOfflineCompletionEntries, loadProgress } = require('../utils/course-modules');
@@ -7,44 +8,28 @@ const COURSE_ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
 const QUIZ_SUBMISSION_UID = 'api::quiz-submission.quiz-submission';
 
 let _creatingSubEntries = false;
-const _prevDueDateByAssignmentKey = new Map();
-const _pendingDueDateChangeDocumentIds = new Set();
-const _dueDateNotificationSentDocumentIds = new Set();
+// Pre-existing learners must have their due date backfilled before any assignment is diffed against it.
+let _backfillPromise = Promise.resolve();
 
-function hasDueDateChangePending(documentId) {
-  return _pendingDueDateChangeDocumentIds.has(String(documentId || ''));
+// Admin checkbox on course-assignment: also push the assignment due date to learners already assigned.
+const UPDATE_EXISTING_FLAG = 'update_existing_learners_due_date';
+
+// Lifecycles for the same assignment (afterCreate on publish, afterUpdate) are processed one at a time,
+// so the per-learner diff in syncLearnerDueDates always reads the result of the previous run.
+const _assignmentQueue = new Map();
+
+function runSerializedForAssignment(key, task) {
+  if (!key) return task();
+  const previous = _assignmentQueue.get(key) || Promise.resolve();
+  const next = previous.catch(() => {}).then(task);
+  _assignmentQueue.set(key, next);
+  const cleanup = () => {
+    if (_assignmentQueue.get(key) === next) _assignmentQueue.delete(key);
+  };
+  next.then(cleanup, cleanup);
+  return next;
 }
 
-function consumeDueDateChangeForDocument(documentId) {
-  const key = String(documentId || '');
-  if (!_pendingDueDateChangeDocumentIds.has(key)) return false;
-  _pendingDueDateChangeDocumentIds.delete(key);
-  return true;
-}
-
-async function captureCourseAssignmentDueDateChange(strapi, data, where) {
-  if (_creatingSubEntries || !data || data.due_date === undefined) return;
-
-  const existing = await loadAssignmentFromWhere(strapi, where);
-  if (!existing) return;
-
-  const key = getAssignmentLifecycleKey(existing);
-  if (!key) return;
-
-  const previousDueDate = formatDueDateValue(existing.due_date);
-  const nextDueDate = formatDueDateValue(data.due_date);
-  _prevDueDateByAssignmentKey.set(key, previousDueDate);
-
-  if (nextDueDate !== previousDueDate && existing.documentId) {
-    _pendingDueDateChangeDocumentIds.add(String(existing.documentId));
-    strapi.log.info(
-      'user-progress-automation: due_date change captured for documentId=%s (%s -> %s)',
-      existing.documentId,
-      previousDueDate || 'n/a',
-      nextDueDate || 'n/a'
-    );
-  }
-}
 function formatDueDateValue(value) {
   if (value == null || value === '') return '';
   const d = value instanceof Date ? value : new Date(value);
@@ -67,56 +52,6 @@ function getAssignmentLifecycleKey(record) {
   return String(record.documentId ?? record.id ?? '');
 }
 
-async function getPreviousPublishedDueDate(strapi, result) {
-  const documentId = result?.documentId;
-  const rowId = result?.id;
-  if (!documentId || rowId == null) return null;
-
-  try {
-    const siblings = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
-      where: {
-        documentId: String(documentId),
-        id: { $ne: Number(rowId) },
-        publishedAt: { $notNull: true },
-      },
-      select: ['due_date'],
-      orderBy: { updatedAt: 'desc' },
-      limit: 1,
-    });
-    return siblings[0]?.due_date ?? null;
-  } catch {
-    return null;
-  }
-}
-
-
-async function isRepublicationAfterEdit(strapi, result) {
-  const documentId = result?.documentId;
-  const rowId = result?.id;
-  if (!documentId || rowId == null) return false;
-
-  if (hasDueDateChangePending(documentId)) return true;
-
-  try {
-    const siblings = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
-      where: {
-        documentId: String(documentId),
-        id: { $ne: Number(rowId) },
-      },
-      select: ['id', 'publishedAt'],
-    });
-    if (!Array.isArray(siblings) || siblings.length === 0) return false;
-
-    // First publish: published row + single draft sibling only.
-    if (siblings.length === 1 && !siblings[0].publishedAt) return false;
-
-    if (siblings.some((row) => row.publishedAt)) return true;
-    return siblings.length > 1;
-  } catch {
-    return false;
-  }
-}
-
 async function resolveAssignmentNotificationPayload(strapi, result, params = {}) {
   const assignmentId = result?.id ?? result?.documentId;
   let payload = null;
@@ -132,28 +67,141 @@ async function resolveAssignmentNotificationPayload(strapi, result, params = {})
   return payload;
 }
 
-async function sendDueDateChangedForAssignment(strapi, result, params = {}) {
-  const documentId = String(result?.documentId || '');
-  if (documentId && _dueDateNotificationSentDocumentIds.has(documentId)) {
-    strapi.log.info(
-      'user-progress-automation: skip duplicate due_date_changed for documentId=%s',
-      documentId
+/**
+ * The learner's own due date lives on their user-progress row (user + course).
+ * A learner with no row, or a row without due_date, has not been assigned yet → gets the assignment due date.
+ * A learner who already has a due_date keeps it, unless the admin ticked "update existing learners".
+ * Returns who was newly assigned and whose due date actually changed, so notifications go only to them.
+ */
+async function syncLearnerDueDates(strapi, courseId, userIds, dueDate, { applyToExisting = false } = {}) {
+  const outcome = { newlyAssignedUserIds: [], dueDateChangedUserIds: [] };
+  const dueValue = formatDueDateValue(dueDate);
+  const ids = [...new Set((userIds || []).map(Number).filter(Boolean))];
+  if (!courseId || ids.length === 0) return outcome;
+
+  const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
+    where: { course: Number(courseId), user: { $in: ids }, publishedAt: { $notNull: true } },
+    select: ['id', 'documentId', 'due_date'],
+    populate: { user: { select: ['id'] } },
+  });
+
+  const rowsByUserId = new Map();
+  for (const row of rows || []) {
+    const uid = Number(row.user?.id ?? row.user);
+    if (!uid) continue;
+    if (!rowsByUserId.has(uid)) rowsByUserId.set(uid, []);
+    rowsByUserId.get(uid).push(row);
+  }
+
+  const missingUserIds = ids.filter((id) => !rowsByUserId.has(id));
+  if (missingUserIds.length > 0) {
+    await createUserProgressEntries(strapi, courseId, missingUserIds, dueValue);
+    outcome.newlyAssignedUserIds.push(...missingUserIds);
+  }
+
+  const toSet = [];
+  for (const [uid, userRows] of rowsByUserId) {
+    const current = formatDueDateValue(userRows.find((r) => r.due_date)?.due_date);
+    if (!current) {
+      toSet.push(...userRows);
+      outcome.newlyAssignedUserIds.push(uid);
+    } else if (applyToExisting && dueValue && current !== dueValue) {
+      toSet.push(...userRows);
+      outcome.dueDateChangedUserIds.push(uid);
+    }
+  }
+
+  const documentIds = [...new Set(toSet.map((r) => r.documentId).filter(Boolean))];
+  if (dueValue && documentIds.length > 0) {
+    // updateMany covers both draft and published rows of each progress document.
+    await strapi.db.query(USER_PROGRESS_UID).updateMany({
+      where: { documentId: { $in: documentIds } },
+      data: { due_date: dueValue },
+    });
+  }
+
+  strapi.log.info(
+    'user-progress-automation: learner due dates synced courseId=%s due=%s newlyAssigned=%d changed=%d untouched=%d',
+    courseId,
+    dueValue || 'n/a',
+    outcome.newlyAssignedUserIds.length,
+    outcome.dueDateChangedUserIds.length,
+    ids.length - outcome.newlyAssignedUserIds.length - outcome.dueDateChangedUserIds.length
+  );
+  return outcome;
+}
+
+async function clearUpdateExistingFlag(strapi, result) {
+  const where = result?.documentId ? { documentId: String(result.documentId) } : { id: result?.id };
+  if (where.id == null && !where.documentId) return;
+  try {
+    // updateMany does not re-trigger afterUpdate, and resets both draft and published rows.
+    await strapi.db.query(COURSE_ASSIGNMENT_UID).updateMany({ where, data: { [UPDATE_EXISTING_FLAG]: false } });
+  } catch (e) {
+    strapi.log.warn('user-progress-automation: failed to reset %s: %s', UPDATE_EXISTING_FLAG, e?.message || e);
+  }
+}
+
+/**
+ * Applies a published course-assignment to its learners:
+ *  - newly added learners → user-progress with the assignment due date + "Course Assigned"
+ *  - existing learners    → untouched, unless UPDATE_EXISTING_FLAG is ticked → "Due Date Updated"
+ *                           only for learners whose stored due date actually differs.
+ */
+async function processPublishedAssignment(strapi, result, params = {}, { payload = null } = {}) {
+  await _backfillPromise;
+  payload = payload || await resolveAssignmentNotificationPayload(strapi, result, params);
+  let { courseId, courseIds, userIds, targetType } = payload || {};
+  if (!courseId || !userIds || userIds.length === 0) {
+    if (result?.id == null && result?.documentId == null) strapi.log.warn('user-progress-automation: assignment has no id/documentId', result);
+    return;
+  }
+  userIds = [...new Set(userIds)];
+
+  const dueDate = params?.data?.due_date ?? result?.due_date ?? payload?.due_date;
+  const applyToExisting = Boolean(params?.data?.[UPDATE_EXISTING_FLAG] ?? result?.[UPDATE_EXISTING_FLAG]);
+  const allCourseIds = (Array.isArray(courseIds) && courseIds.length > 0) ? [...new Set(courseIds)] : [courseId];
+  const levelMap = { Individual: 'individual', Department: 'department', Company: 'company', Location: 'work_location' };
+
+  for (const rawCourseId of allCourseIds) {
+    const numericCourseId = await resolveCourseIdForDb(strapi, rawCourseId);
+    if (!numericCourseId) continue;
+
+    const { newlyAssignedUserIds, dueDateChangedUserIds } = await syncLearnerDueDates(
+      strapi, numericCourseId, userIds, dueDate, { applyToExisting }
     );
-    return false;
+
+    if (newlyAssignedUserIds.length > 0) {
+      const courseTitle = await resolveCourseTitleForNotification(strapi, rawCourseId);
+      await notifyAssignmentUsersForCourse(strapi, {
+        type: 'course_assigned',
+        title: 'Course Assigned',
+        message: `"${courseTitle}" has been assigned to you.`,
+        rawCourseId,
+        userIds: newlyAssignedUserIds,
+        meta: { assignedBy: null, level: levelMap[targetType] || targetType },
+        targetType,
+        excludeCompletedUsers: false,
+      });
+      await createOfflineCompletionEntries(strapi, numericCourseId, newlyAssignedUserIds);
+    }
+
+    if (dueDateChangedUserIds.length > 0) {
+      await sendDueDateChangedNotifications(strapi, result, {
+        courseId: rawCourseId,
+        courseIds: [rawCourseId],
+        userIds: dueDateChangedUserIds,
+        due_date: dueDate,
+        targetType,
+      });
+    }
+
+    if (targetType !== 'Individual') {
+      await createCourseAssignmentEntries(strapi, numericCourseId, userIds, dueDate, payload?.company);
+    }
   }
 
-  const payload = await resolveAssignmentNotificationPayload(strapi, result, params);
-  if (!payload?.courseId || !payload?.userIds?.length) return false;
-
-  payload.userIds = [...new Set(payload.userIds)];
-  payload.due_date = params?.data?.due_date ?? result?.due_date;
-  await sendDueDateChangedNotifications(strapi, result, payload);
-
-  if (documentId) {
-    _dueDateNotificationSentDocumentIds.add(documentId);
-    setTimeout(() => _dueDateNotificationSentDocumentIds.delete(documentId), 10000);
-  }
-  return true;
+  if (applyToExisting) await clearUpdateExistingFlag(strapi, result);
 }
 
 async function filterUsersNotCompleted(strapi, userIds, numericCourseId) {
@@ -247,13 +295,6 @@ async function notifyAssignmentUsersForCourse(strapi, {
     [],
     { sendEmail: emailEnabled, sendSocket: true }
   );
-}
-
-async function loadAssignmentFromWhere(strapi, where) {
-  if (!where || typeof where !== 'object') return null;
-  if (where.id != null) return loadAssignment(strapi, where.id);
-  if (where.documentId != null) return loadAssignment(strapi, where.documentId);
-  return null;
 }
 
 async function sendDueDateChangedNotifications(strapi, result, payload) {
@@ -532,7 +573,6 @@ async function getAssignedUserIdsFromParams(strapi, params, result) {
     courseIds,
     userIds,
     due_date: data.due_date ?? result?.due_date,
-    active: data.active !== false,
     targetType,
     company: data.company ?? result?.company,
   };
@@ -570,16 +610,16 @@ async function getAssignedUserIds(strapi, assignmentId) {
   const assignment = await loadAssignment(strapi, assignmentId);
   if (!assignment) {
     strapi.log.warn('user-progress-automation: assignment not found', { assignmentId });
-    return { courseId: null, userIds: [], due_date: null, active: true, targetType: null };
+    return { courseId: null, userIds: [], due_date: null, targetType: null };
   }
   const coursesField = assignment.courses ?? assignment.course;
   if (!coursesField) {
     strapi.log.warn('user-progress-automation: assignment has no course', { assignmentId });
-    return { courseId: null, courseIds: [], userIds: [], due_date: null, active: true, targetType: null };
+    return { courseId: null, courseIds: [], userIds: [], due_date: null, targetType: null };
   }
   const courseId = getCourseId(coursesField);
   const courseIds = getAllCourseIds(coursesField);
-  if (!courseId) return { courseId: null, courseIds: [], userIds: [], due_date: assignment.due_date, active: assignment.active, targetType: assignment.assignment_target_type };
+  if (!courseId) return { courseId: null, courseIds: [], userIds: [], due_date: assignment.due_date, targetType: assignment.assignment_target_type };
 
   const targetType = assignment.assignment_target_type || 'Company';
   const companyNames = await resolveCompanyNames(strapi, assignment.company ?? assignment.companies, assignment.company ?? assignment.companies);
@@ -647,19 +687,17 @@ async function getAssignedUserIds(strapi, assignmentId) {
     courseIds,
     userIds,
     due_date: assignment.due_date,
-    active: assignment.active,
     targetType,
     company: assignment.company,
   };
 }
 
-async function createCourseAssignmentEntries(strapi, courseId, userIds, dueDate, active, companyRaw) {
+async function createCourseAssignmentEntries(strapi, courseId, userIds, dueDate, companyRaw) {
   if (!courseId || !Array.isArray(userIds) || userIds.length === 0) return;
   const due = dueDate instanceof Date ? dueDate : (dueDate ? new Date(dueDate) : new Date());
   const dueValue = due.toISOString().slice(0, 10);
-  const activeValue = active === 'unpublished' ? 'unpublished' : 'published';
-  
-  const existingByUserId = new Map();
+
+  const existingUserKeys = new Set();
   try {
     const existing = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
       where: { assignment_target_type: 'Individual', courses: { id: Number(courseId) } },
@@ -669,65 +707,20 @@ async function createCourseAssignmentEntries(strapi, courseId, userIds, dueDate,
     (existing || []).forEach((a) => {
       const users = Array.isArray(a?.individual_user) ? a.individual_user : (a?.individual_user ? [a.individual_user] : []);
       users.forEach((u) => {
-        const keys = [];
-        if (u?.id != null) keys.push(String(u.id));
-        if (u?.documentId != null) keys.push(String(u.documentId));
-
-        keys.forEach((key) => {
-          const bucket = existingByUserId.get(key);
-          if (bucket) {
-            bucket.push(a);
-          } else {
-            existingByUserId.set(key, [a]);
-          }
-        });
+        if (u?.id != null) existingUserKeys.add(String(u.id));
+        if (u?.documentId != null) existingUserKeys.add(String(u.documentId));
       });
     });
   } catch (_) {}
-  
+
   const docService = strapi.documents(COURSE_ASSIGNMENT_UID);
   let created = 0;
-  let updated = 0;
   _creatingSubEntries = true;
   try {
     for (const userId of userIds) {
-      const existingAssignments = existingByUserId.get(String(userId)) || [];
-      
-      if (existingAssignments.length > 0) {
-        // Update due_date instead of skipping
-        try {
-          const seen = new Set();
-          for (const existingAssignment of existingAssignments) {
-            const key = existingAssignment?.documentId
-              ? `doc:${existingAssignment.documentId}`
-              : existingAssignment?.id != null
-                ? `id:${existingAssignment.id}`
-                : null;
-            if (!key || seen.has(key)) continue;
-            seen.add(key);
+      // Learner already has an entry for this course: leave it (their due date lives on user-progress).
+      if (existingUserKeys.has(String(userId))) continue;
 
-            if (existingAssignment?.documentId) {
-              await docService.update({
-                documentId: existingAssignment.documentId,
-                data: { due_date: dueValue, active: activeValue },
-                status: 'published',
-              });
-            } else if (existingAssignment?.id != null) {
-              await strapi.db.query(COURSE_ASSIGNMENT_UID).update({
-                where: { id: existingAssignment.id },
-                data: { due_date: dueValue, active: activeValue },
-              });
-            }
-          }
-          updated++;
-          strapi.log.info('Updated due_date for existing course-assignment (userId=%s, courseId=%s, newDueDate=%s)', userId, courseId, due.toISOString());
-        } catch (e) {
-          strapi.log.warn('Failed to update due_date for course-assignment (userId=%s):', userId, e?.message || String(e));
-        }
-        continue;
-      }
-      
-      // Create new entry if user doesn't have this course yet
       try {
         const companyId = companyRaw?.id ?? (Array.isArray(companyRaw?.connect) ? companyRaw.connect[0]?.id : null);
         await docService.create({
@@ -735,7 +728,6 @@ async function createCourseAssignmentEntries(strapi, courseId, userIds, dueDate,
             assignment_target_type: 'Individual',
             courses: { connect: [{ id: Number(courseId) }] },
             due_date: dueValue,
-            active: activeValue,
             individual_user: [userId],
             ...(companyId ? { company: { connect: [{ id: companyId }] } } : {}),
           },
@@ -749,15 +741,15 @@ async function createCourseAssignmentEntries(strapi, courseId, userIds, dueDate,
   } finally {
     _creatingSubEntries = false;
   }
-  if (created > 0 || updated > 0) {
-    strapi.log.info('user-progress-automation: created %d individual course-assignment entries, updated %d entries with new due_date', created, updated);
+  if (created > 0) {
+    strapi.log.info('user-progress-automation: created %d individual course-assignment entries', created);
   }
 }
 
 /**
  * Create user-progress (Not_started) for each user. Uses Document Service so entries appear in admin (Strapi 5).
  */
-async function createUserProgressEntries(strapi, courseId, userIds) {
+async function createUserProgressEntries(strapi, courseId, userIds, dueDate = null) {
   if (!courseId || !Array.isArray(userIds) || userIds.length === 0) return;
   userIds = [...new Set(userIds)]; // one user-progress per user per course
   const now = new Date();
@@ -789,6 +781,7 @@ async function createUserProgressEntries(strapi, courseId, userIds) {
           last_accessed_at: now,
           time_spent_minutes: 0,
           certificate_issued: false,
+          due_date: formatDueDateValue(dueDate) || null,
         },
         status: 'published',
       });
@@ -818,199 +811,11 @@ async function createOfflineCompletionEntries(strapi, courseId, userIds) {
   if (changed > 0) strapi.log.info('user-progress-automation: created/updated %d offline-module-completion entries', changed);
 }
 
-/**
- * When a new course-assignment is created for a course:
- *  1. Find all OTHER published assignments for that same course (excluding the new one).
- *  2. Mark them active='unpublished'.
- *  3. Collect users covered by those OLD assignments who are NOT in the new assignment's user list.
- *  4. Send those removed users a professional notification.
- */
-async function autoUnpublishOldAssignmentsForCourse(strapi, numericCourseId, newAssignmentId, newAssignmentDocumentId, newUserIds, notifUtil) {
-  const LOG = '[course-assignment-unpublish]';
-
-  // Build the exclusion condition.
-  // In Strapi v5 draftAndPublish, one "document" has TWO db rows (draft + published)
-  // with different numeric ids but the same documentId.
-  // We must exclude ALL rows belonging to the new document, not just the one row
-  // returned in result.id — otherwise the draft row gets matched and unpublished too.
-  //
-  // Strategy: use documentId exclusion if available, plus exclude by id as fallback.
-  // Also exclude any row with id >= newAssignmentId to avoid race conditions where
-  // the new row is still being processed.
-  let excludeWhere;
-  if (newAssignmentDocumentId) {
-    // Get ALL row ids that belong to this new document (draft + published)
-    let allRowsOfNewDoc = [];
-    try {
-      allRowsOfNewDoc = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
-        where: { documentId: newAssignmentDocumentId },
-        select: ['id'],
-      });
-    } catch (_) {}
-    const idsToExclude = [...new Set([
-      newAssignmentId,
-      ...allRowsOfNewDoc.map((r) => r.id).filter(Boolean),
-    ])];
-    excludeWhere = { id: { $notIn: idsToExclude } };
-  } else {
-    excludeWhere = { id: { $ne: newAssignmentId } };
-  }
-
-  // Find all OTHER published Individual assignments for this course
-  let oldAssignments = [];
-  try {
-    // Build where clause with all exclusions combined
-    const oldWhere = Object.assign(
-      {},
-      excludeWhere,
-      { active: 'published', courses: { id: numericCourseId } },
-      newAssignmentDocumentId ? { documentId: { $ne: newAssignmentDocumentId } } : {}
-    );
-    oldAssignments = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
-      where: oldWhere,
-      populate: {
-        individual_user: { select: ['id', 'email'] },
-        departments:     { select: ['name'] },
-        work_locations:  { select: ['name'] },
-        company:         { select: ['name'] },
-      },
-      limit: 1000,
-    });
-  } catch (e) {
-    strapi.log.warn(`${LOG} failed fetching old assignments courseId=${numericCourseId}: ${e?.message || e}`);
-    return;
-  }
-
-  if (oldAssignments.length === 0) {
-    strapi.log.info(`${LOG} no old published assignments found for courseId=${numericCourseId} (newAssignmentId=${newAssignmentId})`);
-    return;
-  }
-
-  strapi.log.info(`${LOG} found ${oldAssignments.length} old assignment rows for courseId=${numericCourseId}`);
-
-  // Deduplicate by documentId — db.query returns both draft and published rows
-  // for the same Strapi v5 document. We only need to process each document once.
-  const seenDocIds = new Set();
-  const uniqueOldAssignments = [];
-  for (const a of oldAssignments) {
-    const key = a.documentId ? `doc:${a.documentId}` : `id:${a.id}`;
-    if (seenDocIds.has(key)) continue;
-    seenDocIds.add(key);
-    uniqueOldAssignments.push(a);
-  }
-
-  strapi.log.info(`${LOG} unique old assignments: ${uniqueOldAssignments.length}`);
-
-  // Build set of user IDs in the NEW assignment for fast lookup
-  const newUserIdSet = new Set(newUserIds.map((id) => Number(id)));
-  strapi.log.info(`${LOG} new assignment has ${newUserIdSet.size} users: [${[...newUserIdSet].join(',')}]`);
-
-  // STEP 1: Collect removed users BEFORE marking assignments unpublished
-  const removedUserMap = new Map(); // userId → { id, email }
-  const removedUserIds = [];
-  for (const oldAssignment of uniqueOldAssignments) {
-    strapi.log.info(`${LOG} checking old assignment id=${oldAssignment.id} type=${oldAssignment.assignment_target_type} users=${JSON.stringify((oldAssignment.individual_user || []).map(u => u?.id))}`);
-    if (oldAssignment.assignment_target_type === 'Individual') {
-      const users = Array.isArray(oldAssignment.individual_user) ? oldAssignment.individual_user : [];
-      for (const u of users) {
-        const uid = Number(u?.id);
-        if (!uid) continue;
-        if (!newUserIdSet.has(uid) && !removedUserMap.has(uid)) {
-          removedUserMap.set(uid, { id: uid, email: u.email || null });
-          removedUserIds.push(uid);
-        }
-      }
-    }
-  }
-
-  strapi.log.info(`${LOG} removed users before DB fetch: ${removedUserIds.length} ids=[${removedUserIds.join(',')}]`);
-
-  // Fetch full user details (id + email) directly — relation populate may not return email
-  if (removedUserIds.length > 0) {
-    try {
-      const fullUsers = await strapi.db.query('plugin::users-permissions.user').findMany({
-        where: { id: { $in: removedUserIds } },
-        select: ['id', 'email', 'username'],
-      });
-      strapi.log.info(`${LOG} fetched ${fullUsers.length} full user records for removed users`);
-      for (const u of (fullUsers || [])) {
-        if (u?.id) {
-          removedUserMap.set(Number(u.id), { id: Number(u.id), email: u.email || null });
-        }
-      }
-    } catch (e) {
-      strapi.log.warn(`${LOG} failed fetching removed user details: ${e?.message || e}`);
-    }
-  }
-
-  // STEP 2: Send notification to removed users BEFORE marking assignments unpublished
-  if (removedUserMap.size > 0) {
-    let courseTitle = 'a course';
-    try {
-      const course = await strapi.db.query(COURSE_UID).findOne({
-        where: { id: numericCourseId },
-        select: ['title'],
-      });
-      if (course?.title) courseTitle = course.title;
-    } catch (_) {}
-
-    if (notifUtil) {
-      try {
-        const removedUsersForNotif = [...removedUserMap.values()];
-        strapi.log.info(`${LOG} sending unenrollment notification to ${removedUsersForNotif.length} user(s): ${JSON.stringify(removedUsersForNotif.map(u => u.id))}`);
-        await notifUtil.sendNotification(
-          'course_unassigned',
-          'Course Enrollment Update',
-          `You are no longer eligible for "${courseTitle}". Your enrollment has been updated. Please contact your administrator if you have any questions.`,
-          removedUsersForNotif,
-          { courseId: numericCourseId },
-          []
-        );
-        strapi.log.info(`${LOG} unenrollment notification sent to ${removedUsersForNotif.length} user(s) for courseId=${numericCourseId}`);
-      } catch (notifErr) {
-        strapi.log.warn(`${LOG} notification failed: ${notifErr?.message || notifErr}`);
-      }
-    } else {
-      strapi.log.warn(`${LOG} notifUtil not available — skipping notification`);
-    }
-  } else {
-    strapi.log.info(`${LOG} no removed users to notify for courseId=${numericCourseId}`);
-  }
-
-  // STEP 3: Mark all old assignments as unpublished AFTER notification is sent
-  for (const oldAssignment of uniqueOldAssignments) {
-    try {
-      if (oldAssignment.documentId) {
-        await strapi.db.query(COURSE_ASSIGNMENT_UID).updateMany({
-          where: { documentId: oldAssignment.documentId },
-          data: { active: 'unpublished' },
-        });
-      } else {
-        await strapi.db.query(COURSE_ASSIGNMENT_UID).updateMany({
-          where: { id: oldAssignment.id },
-          data: { active: 'unpublished' },
-        });
-      }
-      strapi.log.info(`${LOG} marked assignment documentId=${oldAssignment.documentId ?? oldAssignment.id} as unpublished`);
-    } catch (e) {
-      strapi.log.warn(`${LOG} failed unpublishing assignment id=${oldAssignment.id}: ${e?.message || e}`);
-    }
-  }
-}
-
 function registerUserProgressLifecycles(strapi) {
   strapi.db.lifecycles.subscribe({
     models: [COURSE_ASSIGNMENT_UID],
 
-    async beforeUpdate(event) {
-      if (_creatingSubEntries) return;
-      try {
-        await captureCourseAssignmentDueDateChange(strapi, event.params?.data, event.params?.where);
-      } catch (e) {
-        strapi.log.warn('user-progress-automation (course-assignment beforeUpdate):', e?.message || e);
-      }
-    },
-
+    // Strapi 5 publish (first publish and every republish) recreates the published row → afterCreate.
     async afterCreate(event) {
       try {
         const { result, params = {} } = event;
@@ -1019,94 +824,15 @@ function registerUserProgressLifecycles(strapi) {
 
         if (result?.assignment_target_type === 'Individual' && _creatingSubEntries) return;
 
-        const isDueDateEdit = await isRepublicationAfterEdit(strapi, result);
-        if (isDueDateEdit) {
-          const hadPendingDueDateChange = hasDueDateChangePending(result?.documentId);
-          consumeDueDateChangeForDocument(result?.documentId);
-
-          const newDueDate = formatDueDateValue(params.data?.due_date ?? result?.due_date);
-          const previousDueDate = formatDueDateValue(await getPreviousPublishedDueDate(strapi, result));
-          if (previousDueDate && previousDueDate === newDueDate && !hadPendingDueDateChange) {
-            strapi.log.info(
-              'user-progress-automation: existing assignment republish with unchanged due_date — skip notification (documentId=%s)',
-              result?.documentId ?? 'n/a'
-            );
-            return;
-          }
-
-          strapi.log.info(
-            'user-progress-automation: existing assignment update detected — sending due_date_changed only (documentId=%s)',
-            result?.documentId ?? 'n/a'
-          );
-          await sendDueDateChangedForAssignment(strapi, result, params);
-          return;
-        }
-
-        const assignmentId = result.id ?? result.documentId;
-        let payload = null;
-        if (params.data) {
-          payload = await getAssignedUserIdsFromParams(strapi, params, result);
-        }
-        if (!payload || !payload.userIds || payload.userIds.length === 0) {
-          if (assignmentId != null) {
-            await new Promise((r) => setTimeout(r, 200));
-            payload = await getAssignedUserIds(strapi, assignmentId);
-          }
-        }
-        let { courseId, courseIds, userIds, due_date, active, targetType } = payload || {};
-        if (!courseId || !userIds || userIds.length === 0) {
-          if (assignmentId == null) strapi.log.warn('user-progress-automation: afterCreate no id/documentId', result);
-          return;
-        }
-        userIds = [...new Set(userIds)];
-
-        const allCourseIds = (Array.isArray(courseIds) && courseIds.length > 0) ? [...new Set(courseIds)] : [courseId];
-        const notifUtil = strapi.utils?.notification;
-        const levelMap = { Individual: 'individual', Department: 'department', Company: 'company', Location: 'work_location' };
-
-        for (const rawCourseId of allCourseIds) {
-          const courseTitle = await resolveCourseTitleForNotification(strapi, rawCourseId);
-          await notifyAssignmentUsersForCourse(strapi, {
-            type: 'course_assigned',
-            title: 'Course Assigned',
-            message: `"${courseTitle}" has been assigned to you.`,
-            rawCourseId,
-            userIds,
-            meta: { assignedBy: null, level: levelMap[targetType] || targetType },
-            targetType,
-            excludeCompletedUsers: false,
-          });
-
-          const numericCourseId = await resolveCourseIdForDb(strapi, rawCourseId);
-          if (!numericCourseId) continue;
-          await createUserProgressEntries(strapi, numericCourseId, userIds);
-          await createOfflineCompletionEntries(strapi, numericCourseId, userIds);
-          if (targetType !== 'Individual') {
-            await createCourseAssignmentEntries(strapi, numericCourseId, userIds, due_date, active, payload?.company);
-          }
-
-          try {
-            await new Promise((r) => setTimeout(r, 300));
-            await autoUnpublishOldAssignmentsForCourse(
-              strapi,
-              numericCourseId,
-              result.id,
-              result.documentId,
-              userIds,
-              notifUtil
-            );
-          } catch (unpubErr) {
-            strapi.log.error(
-              'user-progress-automation: autoUnpublishOldAssignments failed courseId=%s: %s',
-              numericCourseId, unpubErr?.message || unpubErr
-            );
-          }
-        }
+        await runSerializedForAssignment(getAssignmentLifecycleKey(result), () =>
+          processPublishedAssignment(strapi, result, params)
+        );
       } catch (e) {
         strapi.log.error('user-progress-automation (course-assignment afterCreate):', e?.message || e);
       }
     },
 
+    // Direct update of the published row (API / document service with status published).
     async afterUpdate(event) {
       if (_creatingSubEntries) return;
 
@@ -1114,27 +840,11 @@ function registerUserProgressLifecycles(strapi) {
         const { result, params = {} } = event;
         if (!result?.publishedAt && !result?.published_at) return;
 
-        const key = getAssignmentLifecycleKey(result);
-        const previousDueDate = key ? _prevDueDateByAssignmentKey.get(key) : undefined;
-        if (key) _prevDueDateByAssignmentKey.delete(key);
-
-        const pendingDueDateEdit = hasDueDateChangePending(result?.documentId);
-        const newDueDate = formatDueDateValue(params.data?.due_date ?? result?.due_date);
-        const dueDateChanged = pendingDueDateEdit
-          || (previousDueDate !== undefined && previousDueDate !== newDueDate);
-
-        if (!dueDateChanged) return;
-
-        consumeDueDateChangeForDocument(result?.documentId);
-
-        strapi.log.info(
-          'user-progress-automation: due_date changed on published entry (documentId=%s, %s -> %s)',
-          result?.documentId ?? 'n/a',
-          previousDueDate || 'n/a',
-          newDueDate || 'n/a'
-        );
-
-        await sendDueDateChangedForAssignment(strapi, result, params);
+        // params.data may hold only the changed fields here, so resolve learners from the saved row.
+        await runSerializedForAssignment(getAssignmentLifecycleKey(result), async () => {
+          const payload = result?.id != null ? await getAssignedUserIds(strapi, result.id) : null;
+          await processPublishedAssignment(strapi, result, params, { payload });
+        });
       } catch (e) {
         strapi.log.error('user-progress-automation (course-assignment afterUpdate):', e?.message || e);
       }
@@ -1171,6 +881,77 @@ function registerUserProgressLifecycles(strapi) {
   });
 
   strapi.log.info('User-progress automation: course-assignment → Not_started; quiz-submission → In_progress/Failed');
+
+  _backfillPromise = backfillLearnerDueDates(strapi).catch((e) => {
+    strapi.log.error('user-progress-automation: learner due date backfill failed:', e?.message || e);
+  });
+}
+
+const BACKFILL_STORE_KEY = 'learner_due_date_backfill_v1';
+
+/**
+ * One-time backfill for learners assigned before due dates were stored per learner: copies the due date of
+ * their published assignment onto user-progress rows that have none. When several assignments cover the same
+ * learner + course, the earliest due date wins (the rule the frontend used before).
+ */
+async function backfillLearnerDueDates(strapi) {
+  const store = strapi.store({ type: 'core', name: 'user-progress-automation' });
+  if (await store.get({ key: BACKFILL_STORE_KEY })) return;
+
+  const assignments = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
+    where: { publishedAt: { $notNull: true }, due_date: { $notNull: true } },
+    select: ['id'],
+    limit: 100000,
+  });
+
+  const dueByLearnerCourse = new Map();
+  for (const assignment of assignments || []) {
+    const payload = await getAssignedUserIds(strapi, assignment.id);
+    const dueValue = formatDueDateValue(payload?.due_date);
+    if (!dueValue || !payload?.userIds?.length) continue;
+    const courseIds = (payload.courseIds?.length ? payload.courseIds : [payload.courseId]).filter(Boolean);
+    for (const rawCourseId of courseIds) {
+      const numericCourseId = await resolveCourseIdForDb(strapi, rawCourseId);
+      if (!numericCourseId) continue;
+      for (const userId of payload.userIds) {
+        const key = `${Number(userId)}:${Number(numericCourseId)}`;
+        const current = dueByLearnerCourse.get(key);
+        if (!current || dueValue < current) dueByLearnerCourse.set(key, dueValue);
+      }
+    }
+  }
+
+  const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
+    where: { due_date: { $null: true } },
+    select: ['id', 'documentId'],
+    populate: { user: { select: ['id'] }, course: { select: ['id'] } },
+    limit: 1000000,
+  });
+
+  const documentIdsByDue = new Map();
+  for (const row of rows || []) {
+    const key = `${Number(row.user?.id)}:${Number(row.course?.id)}`;
+    const dueValue = dueByLearnerCourse.get(key);
+    if (!dueValue || !row.documentId) continue;
+    if (!documentIdsByDue.has(dueValue)) documentIdsByDue.set(dueValue, new Set());
+    documentIdsByDue.get(dueValue).add(row.documentId);
+  }
+
+  let updated = 0;
+  for (const [dueValue, documentIdSet] of documentIdsByDue) {
+    const documentIds = [...documentIdSet];
+    for (let i = 0; i < documentIds.length; i += 500) {
+      const chunk = documentIds.slice(i, i + 500);
+      await strapi.db.query(USER_PROGRESS_UID).updateMany({
+        where: { documentId: { $in: chunk } },
+        data: { due_date: dueValue },
+      });
+      updated += chunk.length;
+    }
+  }
+
+  await store.set({ key: BACKFILL_STORE_KEY, value: { doneAt: new Date().toISOString(), updated } });
+  strapi.log.info('user-progress-automation: learner due date backfill done (%d progress documents updated)', updated);
 }
 
 async function processCourseAssignmentCreate(strapi, params, result) {
@@ -1190,7 +971,7 @@ async function processCourseAssignmentCreate(strapi, params, result) {
         payload = await getAssignedUserIds(strapi, assignmentId);
       }
     }
-    let { courseId, userIds, due_date, active, targetType } = payload || {};
+    let { courseId, userIds, due_date, targetType } = payload || {};
     if (!courseId || !userIds || userIds.length === 0) {
       strapi.log.warn('user-progress-automation: no users to create entries for', { courseId, userIdsCount: userIds?.length ?? 0, targetType });
       return;
@@ -1202,10 +983,10 @@ async function processCourseAssignmentCreate(strapi, params, result) {
       return;
     }
     strapi.log.info('user-progress-automation: creating entries (%d users, courseId=%s, targetType=%s)', userIds.length, courseId, targetType);
-    await createUserProgressEntries(strapi, courseId, userIds);
+    await createUserProgressEntries(strapi, courseId, userIds, due_date);
     await createOfflineCompletionEntries(strapi, courseId, userIds);
     if (targetType !== 'Individual') {
-      await createCourseAssignmentEntries(strapi, courseId, userIds, due_date, active);
+      await createCourseAssignmentEntries(strapi, courseId, userIds, due_date);
     }
     strapi.log.info('user-progress-automation: processCourseAssignmentCreate done');
   } catch (e) {
@@ -1213,4 +994,4 @@ async function processCourseAssignmentCreate(strapi, params, result) {
   }
 }
 
-module.exports = { registerUserProgressLifecycles, processCourseAssignmentCreate, captureCourseAssignmentDueDateChange };
+module.exports = { registerUserProgressLifecycles, processCourseAssignmentCreate };

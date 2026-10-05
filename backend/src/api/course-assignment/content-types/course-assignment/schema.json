@@ -22,16 +22,13 @@
     },
     "due_date": {
       "type": "date",
-      "required": true
-    },
-    "active": {
-      "type": "enumeration",
       "required": true,
-      "default": "published",
-      "enum": [
-        "published",
-        "unpublished"
-      ]
+      "description": "Due date given to newly added learners. Learners already assigned keep their own due date."
+    },
+    "update_existing_learners_due_date": {
+      "type": "boolean",
+      "default": false,
+      "description": "Tick to also apply the due date to learners already assigned. Resets automatically after publish."
     },
     "courses": {
       "type": "relation",

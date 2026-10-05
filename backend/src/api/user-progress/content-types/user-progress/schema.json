@@ -80,6 +80,10 @@
     },
     "course_version": {
       "type": "string"
+    },
+    "due_date": {
+      "type": "date",
+      "description": "This learner's own due date for the course (set when assigned)."
     }
   }
 }

@@ -649,7 +649,6 @@ async function run() {
       await createAndPublish('api::course-assignment.course-assignment', {
         assignment_target_type: 'Individual',
         due_date: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10),
-        active: true,
         course: { connect: [{ documentId: courseId }] },
         individual_user: connectUser(i),
       });

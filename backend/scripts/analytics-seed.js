@@ -32,7 +32,6 @@ async function seedAnalytics(strapi) {
       const data = {
         assignment_target_type: 'Individual',
         due_date: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10),
-        active: true,
         course: courseId,
         ...rel,
       };

@@ -3,7 +3,6 @@
 
 const { errors } = require('@strapi/utils');
 const { ValidationError } = errors;
-const { captureCourseAssignmentDueDateChange } = require('../../../../lifecycles/user-progress-automation');
 
 function isNumericId(value) {
   return typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(String(value)));
@@ -202,6 +201,5 @@ module.exports = {
     await mergeIndividualUsersWithExisting(event.params?.data, event.params?.where);
     mergeIndividualUserRelationPayload(event.params?.data);
     await validateIndividualPublish(event.params?.data, event.params?.where);
-    await captureCourseAssignmentDueDateChange(strapi, event.params?.data, event.params?.where);
   },
 };

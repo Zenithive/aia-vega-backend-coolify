@@ -119,11 +119,10 @@ async function loadVideoProgressByUser(strapi, userIds, courseIdStr) {
 }
 
 /**
- * Returns the Set of numeric user IDs that have an ACTIVE (active='published')
- * course-assignment for the given course (by numeric ID or documentId string).
+ * Returns the Set of numeric user IDs that are on a published course-assignment
+ * for the given course (by numeric ID or documentId string).
  *
- * This is used by analytics to exclude users whose assignment was replaced
- * by a newer assignment (old assignment marked active='unpublished').
+ * This is used by analytics to exclude users who were removed from the assignment.
  *
  * Only Individual-type assignments are checked because all assignment types
  * (Dept, Location) automatically create per-user Individual entries.
@@ -143,7 +142,7 @@ async function getActivelyAssignedUserIdsForCourse(strapi, courseIdStr) {
   try {
     assignments = await strapi.db.query('api::course-assignment.course-assignment').findMany({
       where: {
-        active: 'published',
+        publishedAt: { $notNull: true },
         assignment_target_type: 'Individual',
         courses: courseWhere,
       },
@@ -840,7 +839,7 @@ module.exports = ({ strapi }) => {
 
     // ── Active-assignment filter ─────────────────────────────────────────────
     // Only include progress records for (user, course) pairs that have an
-    // active (published) Individual course-assignment.
+    // published Individual course-assignment.
     // This applies whether or not a specific course filter is selected.
     try {
       if (params.courseId && String(params.courseId).trim()) {
@@ -855,7 +854,7 @@ module.exports = ({ strapi }) => {
       } else {
         // Global filter (All Courses): build the full set of active (userId, courseId) pairs
         const activeAssignments = await strapi.db.query('api::course-assignment.course-assignment').findMany({
-          where: { active: 'published', assignment_target_type: 'Individual' },
+          where: { publishedAt: { $notNull: true }, assignment_target_type: 'Individual' },
           populate: {
             courses: { select: ['id'] },
             individual_user: { select: ['id'] },
@@ -2821,12 +2820,12 @@ module.exports = ({ strapi }) => {
 
     // ── Global active-assignment filter ─────────────────────────────────────
     // When no specific course is selected, restrict the user pool to only users
-    // who have at least one active (published) Individual course-assignment.
-    // This prevents removed users (with unpublished assignments) from appearing.
+    // who are on at least one published Individual course-assignment.
+    // This prevents users removed from their assignment from appearing.
     if (!params.courseId) {
       try {
         const activeAssignments = await strapi.db.query('api::course-assignment.course-assignment').findMany({
-          where: { active: 'published', assignment_target_type: 'Individual' },
+          where: { publishedAt: { $notNull: true }, assignment_target_type: 'Individual' },
           populate: { individual_user: { select: ['id'] } },
           limit: 50000,
         });
@@ -2890,8 +2889,8 @@ module.exports = ({ strapi }) => {
       }
 
       // ── Active-assignment filter ─────────────────────────────────────────
-      // Only show users who have an active (published) assignment for this course.
-      // Users whose assignment was replaced (marked unpublished) are excluded.
+      // Only show users who are on a published assignment for this course.
+      // Users removed from the assignment are excluded.
       const activeAssignedIds = await getActivelyAssignedUserIdsForCourse(strapi, courseIdStr);
       if (activeAssignedIds.size > 0) {
         for (const uid of [...enrolledUserIds]) {

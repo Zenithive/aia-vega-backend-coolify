@@ -44,7 +44,7 @@ function filterCourseByLanguage(course, language) {
 }
 
 /**
- * Returns course IDs (numeric) that the user is allowed to see based on active course assignments.
+ * Returns course IDs (numeric) that the user is allowed to see based on published course assignments.
  * Assignment types: Individual (user in list), Department (user.department in assignment departments),
  * Company (user.company in assignment companies), Location (AIA: user.branch, Vega: user.working_location in work_locations).
  */
@@ -58,13 +58,8 @@ async function getAssignedCourseIdsForUser(strapi, user) {
   if (!fullUser) return [];
 
   const assignments = await strapi.db.query(COURSE_ASSIGNMENT_UID).findMany({
-    // Keep legacy rows where active may be null; only exclude explicit false.
-    where: {
-      $or: [
-        { active: 'published' },
-        { active: { $null: true } },
-      ],
-    },
+    // Published rows only; a draft-only edit must not change what the learner can see.
+    where: { publishedAt: { $notNull: true } },
     populate: {
       courses: true,
       // Backward compatibility for older entries/customizations that used singular relation.

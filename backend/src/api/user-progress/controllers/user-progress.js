@@ -306,6 +306,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
           completed_at: r.completed_at,
           certificate_issued: r.certificate_issued,
           feedback_submitted: feedbackCourseIds.has(numCourseId),
+          due_date: r.due_date ?? null,
         };
       }
     });
