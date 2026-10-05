@@ -7,6 +7,8 @@
  * A course has an ordered list of modules per language. Each module is either:
  *  - Online:  content (video / pdf / text) and an optional quiz.
  *             completed = content read, and — when it has a quiz — the quiz passed.
+ *             A quiz attempt whose descriptive answers await admin review (review_status
+ *             Pending_review) is neither passed nor failed until the review is saved.
  *  - Offline: practical training/test done in the company, no quiz.
  *             completed = an admin attached completion proof to that learner's
  *             api::offline-module-completion record (created on course assignment).
@@ -239,7 +241,7 @@ async function computeModuleStates(strapi, { course, userId, progress, language 
     userId && course?.id
       ? strapi.db.query(QUIZ_SUBMISSION_UID).findMany({
           where: { submitted_by: Number(userId), course: Number(course.id) },
-          select: ['id', 'module_id', 'passed', 'score', 'attempt_number', 'submitted_at'],
+          select: ['id', 'module_id', 'passed', 'score', 'attempt_number', 'submitted_at', 'review_status'],
           orderBy: { attempt_number: 'asc' },
         })
       : [],
@@ -288,13 +290,16 @@ async function computeModuleStates(strapi, { course, userId, progress, language 
       const subs = submissionsFor(m);
       const last = subs[subs.length - 1] || null;
       const passed = subs.some((s) => s.passed === true);
+      // Score of an attempt under review is provisional (auto-graded part only): not shown / not a fail.
+      const pendingReview = last?.review_status === 'Pending_review';
       state.quiz = {
         attempts: subs.length,
         max_attempt: quizMaxAttempt(m.quiz),
         pass_mark: quizPassMark(course),
         passed,
-        last_score: last?.score ?? null,
-        last_passed: last ? last.passed === true : null,
+        pending_review: pendingReview,
+        last_score: pendingReview ? null : last?.score ?? null,
+        last_passed: last && !pendingReview ? last.passed === true : null,
       };
       state.completed = passed || legacyCompleted;
     } else {
@@ -323,6 +328,7 @@ function nextStepFor(summary, course) {
     const current = summary.currentModule;
     if (!current) return 'continue';
     if (current.module_type === MODULE_TYPES.OFFLINE) return 'offline_assessment_pending';
+    if (current.has_quiz && current.quiz?.pending_review) return 'quiz_review_pending';
     if (current.has_quiz && current.content_completed) return 'quiz_required';
     return 'continue';
   }

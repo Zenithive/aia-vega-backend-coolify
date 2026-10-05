@@ -69,6 +69,22 @@
     },
     "module_title": {
       "type": "string"
+    },
+    "review_status": {
+      "type": "enumeration",
+      "enum": [
+        "Not_required",
+        "Pending_review",
+        "Reviewed"
+      ],
+      "default": "Not_required",
+      "description": "Pending_review: descriptive answers await admin marking; score/passed are final only once Reviewed."
+    },
+    "reviewed_at": {
+      "type": "datetime"
+    },
+    "reviewed_by": {
+      "type": "string"
     }
   }
 }

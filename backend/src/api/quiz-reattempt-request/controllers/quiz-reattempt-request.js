@@ -166,6 +166,10 @@ module.exports = createCoreController(
         return ctx.badRequest("No quiz attempt found.");
       }
 
+      if (lastSubmission.review_status === "Pending_review") {
+        return ctx.badRequest("Your last attempt is still being reviewed. Wait for your result before requesting a reattempt.");
+      }
+
       const nextAttempt = lastSubmission.attempt_number + 1;
 
       const existingApproved = await strapi.db

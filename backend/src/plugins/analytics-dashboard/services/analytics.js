@@ -10,6 +10,9 @@ const getShared = (strapi) => require('./analyticsShared')({ strapi });
 const { buildEmployeeAccountStatus } = require('./analyticsShared');
 const getCommon = (strapi) => require('./analyticsCommon')({ strapi });
 const getLearningQuiz = (strapi) => require('./learning/learningQuiz')({ strapi });
+
+// A quiz attempt whose descriptive answers await admin review has a provisional score: not a result yet.
+const isFinalQuizResult = (submission) => submission?.review_status !== 'Pending_review';
 const getOverall = (strapi) => require('./overall/overall')({ strapi });
 const getTelemetry = (strapi) => require('./analyticsTelemetry')({ strapi });
 
@@ -974,7 +977,7 @@ module.exports = ({ strapi }) => {
           });
           quizPassedByUserCourse = new Set();
           quizFailedByUserCourse = new Set();
-          (quizSubs || []).forEach((q) => {
+          (quizSubs || []).filter(isFinalQuizResult).forEach((q) => {
             const uid = q.submitted_by?.id ?? q.submitted_by ?? q.submitted_by_id;
             const cid = q.course?.id ?? q.course ?? q.course_id;
             const cidDoc = q.course?.documentId ?? q.course?.document_id;
@@ -1252,7 +1255,7 @@ module.exports = ({ strapi }) => {
                 submitted_by: { id: { $in: numericUserIdsQuiz } },
                 course: { id: { $in: uniqueNumericCourseIdsQuiz } },
               },
-              fields: ['score'],
+              fields: ['score', 'review_status'],
               populate: ['submitted_by', 'course'],
               limit: 10000,
               start: 0,
@@ -1270,7 +1273,7 @@ module.exports = ({ strapi }) => {
                   course: { id: { $in: uniqueNumericCourseIdsQuiz } },
                 },
                 populate: { submitted_by: true, course: true },
-                select: ['score'],
+                select: ['score', 'review_status'],
                 limit: 10000,
               });
             } catch (eDbRel) {
@@ -1286,7 +1289,7 @@ module.exports = ({ strapi }) => {
                   submitted_by_id: { $in: numericUserIdsQuiz },
                   course_id: { $in: uniqueNumericCourseIdsQuiz },
                 },
-                select: ['score', 'submitted_by_id', 'course_id'],
+                select: ['score', 'review_status', 'submitted_by_id', 'course_id'],
                 limit: 10000,
               });
             } catch (eRaw) {
@@ -1296,6 +1299,7 @@ module.exports = ({ strapi }) => {
 
           strapi.log.info(`[LearningGlobal][AvgQuizScore] Quiz submissions fetched. count=${Array.isArray(quizSubs) ? quizSubs.length : 0}`);
           const scores = (quizSubs || [])
+            .filter(isFinalQuizResult)
             .filter((s) => {
               const uid = Number(s.submitted_by?.id ?? s.submitted_by ?? s.submitted_by_id);
               const cid = Number(s.course?.id ?? s.course ?? s.course_id);
@@ -3152,6 +3156,7 @@ module.exports = ({ strapi }) => {
         strapi.log.warn('Employee table: submission db.query fallback failed:', e2?.message);
       }
     }
+    submissionList = (submissionList || []).filter(isFinalQuizResult);
 
     if (params.courseId) {
       const courseIdStr = String(params.courseId).trim();
@@ -3622,6 +3627,7 @@ module.exports = ({ strapi }) => {
         strapi.log.warn('Employee table export: submission fallback failed:', e2?.message);
       }
     }
+    submissionList = (submissionList || []).filter(isFinalQuizResult);
 
     if (params.courseId) {
       const courseIdStr = String(params.courseId).trim();

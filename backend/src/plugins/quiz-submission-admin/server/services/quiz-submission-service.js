@@ -16,10 +16,23 @@ function getEmployeeName(user = {}) {
   return full || user.username || user.email || '-';
 }
 
+/** Multi-select values are saved as { option_key } (or { answer } / plain strings in older rows). */
+function multiSelectKeys(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (item && typeof item === 'object' ? item.option_key ?? item.answer ?? item.option_label : item))
+    .filter((v) => v != null && String(v).trim() !== '')
+    .map((v) => String(v).trim());
+}
+
 function extractSelectedAnswer(answer = {}) {
+  if (answer.question_type === 'Descriptive') {
+    const text = String(answer.user_answer_for_descriptive_question || '').trim();
+    return text || '-';
+  }
   if (answer.question_type === 'Multiple_select') {
     const value = answer.selected_answer_for_multiSelect;
-    if (Array.isArray(value)) return value.join(', ');
+    if (Array.isArray(value)) return multiSelectKeys(value).join(', ') || '-';
     if (value && typeof value === 'object') return JSON.stringify(value);
     return value ? String(value) : '-';
   }
@@ -31,6 +44,8 @@ function appendCorrectnessSuffix(answerText, answer = {}) {
   const correctness = answer?.correct ?? answer?.is_correct;
   if (correctness === true) return `${base} (true)`;
   if (correctness === false) return `${base} (false)`;
+  // Descriptive answer not marked by an admin yet.
+  if (answer?.question_type === 'Descriptive') return `${base} (pending)`;
   return `${base} (-)`;
 }
 
@@ -147,7 +162,9 @@ module.exports = ({ strapi }) => ({
         emp_id: user.emp_id || '-',
         emp_code: user.emp_code || '-',
         module: submission.module_title || '-',
-        score: `${correct}/${totalQuestions} (${percentage}%)`,
+        score: submission.review_status === 'Pending_review'
+          ? 'Pending review'
+          : `${correct}/${totalQuestions} (${percentage}%)`,
       };
 
       answers.forEach((answer, index) => {
@@ -167,9 +184,9 @@ module.exports = ({ strapi }) => ({
         }
         // Convert option key(s) like A/B/C to option labels.
         if (Array.isArray(answer?.selected_answer_for_multiSelect)) {
-          const label = answer.selected_answer_for_multiSelect
-            .map((k) => optionMap.get(String(k).trim()) || String(k))
-            .join(', ');
+          const label = multiSelectKeys(answer.selected_answer_for_multiSelect)
+            .map((k) => optionMap.get(k) || k)
+            .join(', ') || '-';
           row[key] = appendCorrectnessSuffix(label, answer);
           return;
         }

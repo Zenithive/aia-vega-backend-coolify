@@ -136,6 +136,24 @@ function buildNotificationBodyContent(type, message, meta = {}) {
     `;
   }
 
+  if (type === 'quiz_reviewed') {
+    const passed = meta.passed === true;
+    const scoreLabel = meta.score != null ? `${meta.score}% — ${passed ? 'Passed' : 'Not passed'}` : null;
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        Your quiz has been <strong style="color:${PRIMARY};">reviewed</strong> and your final result is now available.
+      </p>
+      ${courseChip(passed ? SUCCESS : ERROR, passed ? SUCCESS_LIGHT : ERROR_LIGHT)}
+      ${buildInfoBlock('Module', meta.moduleTitle, PRIMARY, PRIMARY_LIGHT)}
+      ${buildInfoBlock('Final score', scoreLabel, passed ? SUCCESS : ERROR, passed ? SUCCESS_LIGHT : ERROR_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">${passed
+        ? 'Please log in to the portal to continue with the next module.'
+        : 'Please log in to the portal to see your options for the next attempt.'}</p>
+      <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">If you have any questions, please reach out to your Learning &amp; Development team.</p>
+    `;
+  }
+
   if (type === 'quiz_reattempt_approved') {
     return `
       ${greeting}

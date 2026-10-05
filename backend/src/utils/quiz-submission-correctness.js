@@ -106,6 +106,12 @@ async function populateAnswerCorrectField(strapi, data) {
     const question = quizQuestions.find((q) => q?.question_id === qid);
     if (!question) return { ...ans, correct: false };
 
+    // Descriptive answers are marked by an admin (utils/quiz-review): keep the given value,
+    // null meaning "not reviewed yet".
+    if (ans?.question_type === 'Descriptive') {
+      return { ...ans, correct: typeof ans?.correct === 'boolean' ? ans.correct : null };
+    }
+
     let isCorrect = false;
     if (ans?.question_type === 'Multiple_choice') {
       const submitted = buildEquivalentChoiceTokens(question, ans?.selected_answer_for_multiChoice);

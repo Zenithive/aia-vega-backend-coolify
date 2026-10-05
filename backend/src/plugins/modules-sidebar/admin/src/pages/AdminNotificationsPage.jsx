@@ -31,6 +31,8 @@ function submissionAdminSearchFromMeta(meta) {
   if (company) params.set("company", company);
   const courseId = String(meta?.courseDocumentId || meta?.courseId || "").trim();
   if (courseId) params.set("courseId", courseId);
+  // Quiz with descriptive answers → open the review tab of the quiz submission page.
+  if (meta?.pendingReview) params.set("tab", "review");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }

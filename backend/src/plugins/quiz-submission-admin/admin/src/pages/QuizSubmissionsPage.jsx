@@ -2,8 +2,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Layouts, getFetchClient } from '@strapi/strapi/admin';
-import { Box, Flex, Loader, SingleSelect, SingleSelectOption, Typography } from '@strapi/design-system';
+import { Box, Button, Flex, Loader, SingleSelect, SingleSelectOption, Typography } from '@strapi/design-system';
 import DataTable from '../../../../analytics-dashboard/admin/src/components/DataTable';
+import QuizReviewTab from './QuizReviewTab.jsx';
 
 const PAGE_SIZE = 10;
 const COMPANIES = ['AIA', 'Vega'];
@@ -21,6 +22,10 @@ function parseCourseIdFromSearch(search) {
   return String(p.get('courseId') || '').trim();
 }
 
+function parseTabFromSearch(search) {
+  return new URLSearchParams(search).get('tab') === 'review' ? 'review' : 'submissions';
+}
+
 export default function QuizSubmissionsPage() {
   const { get } = getFetchClient();
   const location = useLocation();
@@ -33,10 +38,12 @@ export default function QuizSubmissionsPage() {
   const [columns, setColumns] = useState([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [tab, setTab] = useState(() => parseTabFromSearch(location.search));
 
   useLayoutEffect(() => {
     const nextCompany = parseCompanyFromSearch(location.search);
     const nextCourseId = parseCourseIdFromSearch(location.search);
+    setTab(parseTabFromSearch(location.search));
     setCompany((prev) => (prev !== nextCompany ? nextCompany : prev));
     setCourseId((prev) => (prev !== nextCourseId ? nextCourseId : prev));
   }, [location.search]);
@@ -128,6 +135,15 @@ export default function QuizSubmissionsPage() {
             </Box>
           ) : null}
 
+          <Flex gap={2} marginBottom={4}>
+            <Button variant={tab === 'submissions' ? 'default' : 'tertiary'} onClick={() => setTab('submissions')}>
+              All submissions
+            </Button>
+            <Button variant={tab === 'review' ? 'default' : 'tertiary'} onClick={() => setTab('review')}>
+              Descriptive review
+            </Button>
+          </Flex>
+
           <Box padding={4} background="neutral0" hasRadius shadow="tableShadow" marginBottom={4}>
             <Typography variant="sigma" textColor="neutral600" marginBottom={3}>
               Filters
@@ -168,7 +184,9 @@ export default function QuizSubmissionsPage() {
             </Flex>
           </Box>
 
-          {loading ? (
+          {tab === 'review' ? (
+            <QuizReviewTab company={company} courseId={courseId} />
+          ) : loading ? (
             <Flex justifyContent="center" padding={6}>
               <Loader>Loading...</Loader>
             </Flex>
@@ -203,7 +221,7 @@ export default function QuizSubmissionsPage() {
                   render: (value) => {
                     const str = value ?? '-';
                     const match = col.key.startsWith('q_') && typeof str === 'string'
-                      ? str.match(/^(.*)\((true|false|-)\)$/)
+                      ? str.match(/^([\s\S]*)\((true|false|pending|-)\)$/)
                       : null;
                     return (
                       <Typography

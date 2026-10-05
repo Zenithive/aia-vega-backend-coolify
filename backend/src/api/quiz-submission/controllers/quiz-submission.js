@@ -18,6 +18,7 @@ const {
   computeModuleStates,
   recomputeProgress,
 } = require("../../../utils/course-modules");
+const { REVIEW_STATUS, needsManualReview } = require("../../../utils/quiz-review");
 
 // ----------------------------------------------------------
 // ⭐ SCORE CALCULATION LOGIC (standalone – avoids controller
@@ -153,14 +154,8 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null,
           // -----------------------------
           // DESCRIPTIVE LOGIC
           // -----------------------------
-          if (ans.question_type === "Descriptive") {
-            // Descriptive answers are not auto-graded: any non-empty answer earns the points.
-            const userText = normalizeToken(ans.user_answer_for_descriptive_question);
-
-            if (userText) {
-              earnedPoints += pts;
-            }
-          }
+          // Not auto-graded: points are added only after an admin marks the answer correct
+          // (utils/quiz-review), so this score covers the auto-graded part only.
 
           // -----------------------------
           // MULTI-SELECT LOGIC
@@ -219,7 +214,7 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null,
  *
  * @param {any} course
  * @param {any[]} answers
- * @returns {Map<string, boolean>}
+ * @returns {Map<string, boolean|null>} null = descriptive answer awaiting admin review
  */
 function buildAnswerCorrectnessMap(course, answers) {
   const out = new Map();
@@ -303,10 +298,9 @@ function buildAnswerCorrectnessMap(course, answers) {
       isCorrect = [...submittedChoice].some((token) => correctChoice.has(token));
     }
     else if (ans?.question_type === 'Descriptive') {
-      // const userText = normalizeToken(ans?.user_answer_for_descriptive_question);
-      // const correctText = normalizeToken(q?.correct_answer);
-
-      isCorrect = true;
+      // Empty answer → wrong. Otherwise null = waiting for admin review.
+      out.set(qid, needsManualReview(ans) ? null : false);
+      return;
     } 
     else if (ans?.question_type === 'Multiple_select') {
       const userSelected = extractSubmittedMultiSelectValues(ans?.selected_answer_for_multiSelect);
@@ -422,6 +416,7 @@ module.exports = createCoreController(
       // Frontend (AssessmentQuiz.jsx) reads: resultRes?.submission and resultRes?.maxAttempt
       return ctx.send({
         submission: submission || null,
+        review_pending: submission?.review_status === REVIEW_STATUS.PENDING,
         maxAttempt,
         module_id: module?.module_id ?? null,
         pass_mark: module ? quizPassMark(course) : null,
@@ -550,6 +545,10 @@ module.exports = createCoreController(
           }
         }
 
+        if (lastSubmission?.review_status === REVIEW_STATUS.PENDING) {
+          return ctx.conflict("Your previous attempt is waiting for review. You can continue once your result is published.");
+        }
+
         const minPassingScore = quizPassMark(course);
         const maxAttempt = quizMaxAttempt(moduleQuiz);
 
@@ -561,7 +560,10 @@ module.exports = createCoreController(
         // ------------------------------------------------------
         const scoreRaw = await calculateScore(strapi, courseId, answers, course, moduleQuiz);
         const score = Number.isFinite(Number(scoreRaw)) ? Number(scoreRaw) : 0;
-        const passed = score >= minPassingScore;
+        // Descriptive answers with text are marked by an admin: until then the result is not final.
+        const pendingReview = (Array.isArray(answers) ? answers : []).some(needsManualReview);
+        const passed = !pendingReview && score >= minPassingScore;
+        const review_status = pendingReview ? REVIEW_STATUS.PENDING : REVIEW_STATUS.NOT_REQUIRED;
 
         // Check for approved reattempt (deterministic selection by attempt number)
         strapi.log.info({ courseId, userId: userIdNum, nextAttempt }, '[quiz-submit][reattempt-select] Phase 1 — exact match lookup');
@@ -677,7 +679,7 @@ module.exports = createCoreController(
         const correctnessByQuestionId = buildAnswerCorrectnessMap(course, answers);
         const sanitizedAnswers = (Array.isArray(answers) ? answers : []).map((a) => {
           const questionId = a.question_id || a.question || 'unknown';
-          const isCorrect = correctnessByQuestionId.get(questionId) ?? false;
+          const isCorrect = correctnessByQuestionId.has(questionId) ? correctnessByQuestionId.get(questionId) : false;
           const questionType = a.question_type || 'Multiple_choice';
 
           const base = {
@@ -707,15 +709,17 @@ module.exports = createCoreController(
             selected_answer_for_multiChoice: a.selected_answer_for_multiChoice ?? '',
           };
         });
+        const correctPendingCount = sanitizedAnswers.filter((a) => a?.correct === null).length;
         const correctTrueCount = sanitizedAnswers.filter((a) => a?.correct === true).length;
         const correctFalseCount = sanitizedAnswers.filter((a) => a?.correct === false).length;
         strapi.log.info(
-          '[quiz-submit] answers prepared courseId=%s userId=%s total=%s true=%s false=%s',
+          '[quiz-submit] answers prepared courseId=%s userId=%s total=%s true=%s false=%s pendingReview=%s',
           courseId,
           userIdNum,
           sanitizedAnswers.length,
           correctTrueCount,
-          correctFalseCount
+          correctFalseCount,
+          correctPendingCount
         );
         const entry = await strapi.entityService.create(
           "api::quiz-submission.quiz-submission",
@@ -733,6 +737,7 @@ module.exports = createCoreController(
               time_taken_minutes,
               submission_type,
               course_version,
+              review_status,
               publishedAt: new Date(), // publish immediately, not draft
             }),
           }
@@ -778,7 +783,7 @@ module.exports = createCoreController(
         }
 
         // When user failed and this attempt used all allowed attempts → show re-attempt (e.g. max_attempt=1, failed 1st time)
-        const reattemptRequired = !passed && nextAttempt >= maxAttempt;
+        const reattemptRequired = !passed && !pendingReview && nextAttempt >= maxAttempt;
 
         let hasPendingReattempt = false;
         if (reattemptRequired) {
@@ -815,11 +820,15 @@ module.exports = createCoreController(
             const courseDocumentId = course?.documentId || null;
             const companyCandidates = Array.isArray(course?.company) ? course.company : course?.company ? [course.company] : [];
             const company = companyCandidates[0]?.name || null;
-            const meta = { courseId, userId, moduleId, moduleTitle: quizModule.title || null, score, passed, courseTitle, userName, courseDocumentId, company };
+            const meta = { courseId, userId, moduleId, moduleTitle: quizModule.title || null, score, passed, pendingReview, submissionId: entry.id, courseTitle, userName, courseDocumentId, company };
+            const who = userName || `User #${userId}`;
+            const where = `${quizModule.title ? ` for module \"${quizModule.title}\"` : ""}${courseTitle ? ` in \"${courseTitle}\"` : ""}`;
             await notifUtil.sendNotification(
               "quiz_submitted",
-              "Quiz Submitted",
-              `${userName || `User #${userId}`} has submitted the quiz${quizModule.title ? ` for module \"${quizModule.title}\"` : ""}${courseTitle ? ` in \"${courseTitle}\"` : ""}. Score: ${score}% - ${passed ? "PASSED" : "FAILED"}. Please review the result in the admin panel.`,
+              pendingReview ? "Quiz Awaiting Review" : "Quiz Submitted",
+              pendingReview
+                ? `${who} has submitted the quiz${where}. Descriptive answers are waiting for your review before the final score is published.`
+                : `${who} has submitted the quiz${where}. Score: ${score}% - ${passed ? "PASSED" : "FAILED"}. Please review the result in the admin panel.`,
               [],
               meta,
               ["admin", "LMadmin"],
@@ -836,6 +845,7 @@ module.exports = createCoreController(
         maxAttempt,
         module_id: moduleId,
         pass_mark: minPassingScore,
+        review_pending: pendingReview,
         has_pending_reattempt: hasPendingReattempt,
         ...(reattemptRequired && { reattempt_required: true }),
       });

@@ -107,6 +107,8 @@ module.exports = ({ strapi }) => {
       }
     }
 
+    // Attempts awaiting descriptive-answer review have a provisional score: leave them out.
+    submissions = submissions.filter((s) => s?.review_status !== 'Pending_review');
     const passed = submissions.filter((s) => s.passed).length;
     const total = submissions.length;
     const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;

@@ -1,1 +1,26 @@
-{"kind":"collectionType","collectionName":"notifications","info":{"singularName":"notification","pluralName":"notifications","displayName":"Notifications"},"options":{"draftAndPublish":false},"pluginOptions":{},"attributes":{"type":{"type":"enumeration","required":true,"enum":["course_assigned","course_unassigned","due_date_changed","quiz_reattempt_requested","quiz_reattempt_approved","quiz_reattempt_rejected","quiz_submitted","feedback_submitted","news_liked","profile_edit_request","custom"]},"title":{"type":"string","required":true},"message":{"type":"text","required":true},"is_read":{"type":"boolean","default":false},"toUser":{"type":"relation","relation":"manyToOne","target":"plugin::users-permissions.user"},"admin_user":{"type":"relation","relation":"oneToOne","target":"admin::user"},"forRole":{"type":"enumeration","enum":["user","HRadmin","LMadmin","admin"]},"meta":{"type":"json"}}}
+{
+    "kind":"collectionType",
+    "collectionName":"notifications",
+    "info":
+{
+            "singularName":"notification",
+            "pluralName":"notifications",
+            "displayName":"Notifications"
+        },
+    "options":{
+        "draftAndPublish":false},
+        "pluginOptions":{},
+        "attributes":{
+            "type":{
+                "type":"enumeration",
+                "required":true,
+                "enum":["course_assigned",
+                "course_unassigned","due_date_changed","quiz_reattempt_requested","quiz_reattempt_approved","quiz_reattempt_rejected","quiz_submitted","quiz_reviewed","feedback_submitted","news_liked","profile_edit_request","custom"]}
+                ,"title":{"type":"string","required":true},
+                "message":{"type":"text","required":true},
+                "is_read":{"type":"boolean","default":false},
+                "toUser":{"type":"relation","relation":"manyToOne","target":"plugin::users-permissions.user"},
+                "admin_user":{"type":"relation","relation":"oneToOne","target":"admin::user"},
+                "forRole":{"type":"enumeration","enum":["user","HRadmin","LMadmin","admin"]},
+                "meta":{"type":"json"}}
+}
