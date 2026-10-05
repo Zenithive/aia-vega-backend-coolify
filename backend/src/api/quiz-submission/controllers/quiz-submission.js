@@ -6,6 +6,18 @@
  */
 
 const { createCoreController } = require("@strapi/strapi").factories;
+const {
+  MODULE_QUIZ_POPULATE,
+  collectModuleQuizzes,
+  findModule,
+  findModuleByQuestionIds,
+  moduleHasQuiz,
+  quizPassMark,
+  quizMaxAttempt,
+  loadProgress,
+  computeModuleStates,
+  recomputeProgress,
+} = require("../../../utils/course-modules");
 
 // ----------------------------------------------------------
 // ⭐ SCORE CALCULATION LOGIC (standalone – avoids controller
@@ -17,24 +29,13 @@ const { createCoreController } = require("@strapi/strapi").factories;
  * @param {any[]} answers
  * @returns {Promise<number>}
  */
-async function calculateScore(strapi, courseId, answers, preloadedCourse = null) {
+async function calculateScore(strapi, courseId, answers, preloadedCourse = null, moduleQuiz = null) {
       const course = preloadedCourse || await strapi.db.query("api::course.course").findOne({
         where: { id: courseId },
-        populate: {
-          quiz: {
-            populate: {
-              quiz_questions: {
-                populate: {
-                  correct_multiSelect_answers: true,
-                  options: true,
-                }
-              }
-            }
-          }
-        }
+        populate: { modules: { populate: MODULE_QUIZ_POPULATE } },
       });
 
-      // quiz is a repeatable component → array. Pick the block that best matches submitted question_ids.
+      // Quizzes live on online modules. Use the submitted module's quiz, else the one matching the question_ids.
       const answerQuestionIds = new Set(
         (Array.isArray(answers) ? answers : [])
           .map((a) => a?.question_id)
@@ -63,7 +64,7 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null)
         return best;
       };
 
-      const quiz = pickBestQuiz(course?.quiz);
+      const quiz = moduleQuiz || pickBestQuiz(collectModuleQuizzes(course));
       if (!quiz?.quiz_questions || quiz.quiz_questions.length === 0) return 0;
 
       const questions = quiz.quiz_questions;
@@ -222,7 +223,7 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null)
  */
 function buildAnswerCorrectnessMap(course, answers) {
   const out = new Map();
-  const quizList = Array.isArray(course?.quiz) ? course.quiz : [];
+  const quizList = Array.isArray(course?.quiz) ? course.quiz : collectModuleQuizzes(course);
   const questions = [];
   quizList.forEach((qz) => {
     if (Array.isArray(qz?.quiz_questions)) questions.push(...qz.quiz_questions);
@@ -333,6 +334,11 @@ function buildAnswerCorrectnessMap(course, answers) {
   return out;
 }
 
+/** Reattempt requests for this module quiz, plus course-wide ones (admin-created / legacy rows without a module). */
+function reattemptModuleWhere(moduleId) {
+  return { $or: [{ module_id: moduleId }, { module_id: { $null: true } }, { module_id: '' }] };
+}
+
 async function resolveCourseNumericId(strapi, rawCourseId) {
   if (rawCourseId == null || rawCourseId === '') return null;
 
@@ -388,27 +394,38 @@ module.exports = createCoreController(
     // ----------------------------------------------------------
     async getLatest(ctx) {
       const { userId, courseId } = ctx.query;
+      const moduleId = ctx.query.moduleId ?? ctx.query.module_id ?? null;
 
       if (!userId || !courseId) {
         return ctx.badRequest('userId and courseId are required');
       }
 
-      const submission = await strapi.db
-        .query('api::quiz-submission.quiz-submission')
-        .findOne({
-          where: { submitted_by: Number(userId), course: Number(courseId) },
-          orderBy: { attempt_number: 'desc' },
-        });
-
-      // Fetch maxAttempt from course so the frontend can display "Attempt X of Y"
       const course = await strapi.db.query('api::course.course').findOne({
         where: { id: Number(courseId) },
-        populate: { quiz: true },
+        populate: { modules: { populate: { quiz: true } } },
       });
-      const maxAttempt = course?.quiz?.[0]?.max_attempt ?? 1;
+      // Without a moduleId (older clients) fall back to the first module that has a quiz.
+      const module = moduleId
+        ? findModule(course?.modules, moduleId)
+        : (course?.modules || []).find((m) => m?.module_type !== 'Offline' && m?.quiz) || null;
+
+      const where = { submitted_by: Number(userId), course: Number(courseId) };
+      if (module?.module_id) where.module_id = module.module_id;
+
+      const submission = await strapi.db
+        .query('api::quiz-submission.quiz-submission')
+        .findOne({ where, orderBy: { attempt_number: 'desc' } });
+
+      // maxAttempt so the frontend can display "Attempt X of Y"
+      const maxAttempt = quizMaxAttempt(module?.quiz);
 
       // Frontend (AssessmentQuiz.jsx) reads: resultRes?.submission and resultRes?.maxAttempt
-      return ctx.send({ submission: submission || null, maxAttempt });
+      return ctx.send({
+        submission: submission || null,
+        maxAttempt,
+        module_id: module?.module_id ?? null,
+        pass_mark: module ? quizPassMark(course) : null,
+      });
     },
 
     // ----------------------------------------------------------
@@ -426,6 +443,7 @@ module.exports = createCoreController(
           submission_type: submissionTypeRaw,
           course_version: courseVersionRaw,
         } = ctx.request.body;
+          const moduleIdParam = ctx.request.body?.moduleId ?? ctx.request.body?.module_id ?? null;
 
           // Accept either numeric id or documentId from frontend
           const courseInput = courseIdParam ?? courseParam;
@@ -463,29 +481,52 @@ module.exports = createCoreController(
           // ------------------------------------------------------
           const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-          const [course, rejectedList, lastSubmission] = await Promise.all([
-          strapi.db.query("api::course.course").findOne({
+          const course = await strapi.db.query("api::course.course").findOne({
             where: { id: Number(courseId) },
             populate: {
-              quiz: {
-                populate: {
-                  quiz_questions: {
-                    populate: {
-                      correct_multiSelect_answers: true,
-                      options: true,
-                    },
-                  },
-                },
-              },
+              modules: { populate: MODULE_QUIZ_POPULATE },
               company: true,
             },
-          }),
+          });
+
+        // ------------------------------------------------------
+        // 1. Fetch course (for passing score + attempt limit)
+        // ------------------------------------------------------
+        if (!course) return ctx.badRequest(`Invalid course (id=${courseId})`);
+
+        // Quizzes belong to online modules: use the requested module, else match the answered questions.
+        const quizModule =
+          findModule(course.modules, moduleIdParam) ||
+          findModuleByQuestionIds(course, (Array.isArray(answers) ? answers : []).map((a) => a?.question_id));
+        if (!quizModule || !moduleHasQuiz(quizModule)) {
+          return ctx.badRequest("This module has no quiz.");
+        }
+        const moduleQuiz = quizModule.quiz;
+        const moduleId = quizModule.module_id;
+
+        // Module sequence: earlier modules must be completed and this module's content finished.
+        const progressRow = await loadProgress(strapi, userIdNum, Number(courseId));
+        const moduleSummary = await computeModuleStates(strapi, {
+          course,
+          userId: userIdNum,
+          progress: { ...(progressRow || {}), selected_language: quizModule.language || progressRow?.selected_language },
+        });
+        const moduleState = moduleSummary.modules.find((m) => m.module_id === moduleId);
+        if (moduleState && !moduleState.unlocked) {
+          return ctx.forbidden("Complete the previous modules before taking this quiz.");
+        }
+        if (moduleState && !moduleState.content_completed) {
+          return ctx.forbidden("Finish this module's content before taking the quiz.");
+        }
+
+        const [rejectedList, lastSubmission] = await Promise.all([
           strapi.db
             .query("api::quiz-reattempt-request.quiz-reattempt-request")
             .findMany({
               where: {
                 course: Number(courseId),
                 users_permissions_user: userIdNum,
+                ...reattemptModuleWhere(moduleId),
                 request_status: "Rejected",
               },
               orderBy: { updatedAt: "desc" },
@@ -494,7 +535,7 @@ module.exports = createCoreController(
           strapi.db
             .query("api::quiz-submission.quiz-submission")
             .findOne({
-              where: { submitted_by: userIdNum, course: courseId },
+              where: { submitted_by: userIdNum, course: courseId, module_id: moduleId },
               orderBy: { attempt_number: "desc" },
             }),
         ]);
@@ -509,15 +550,8 @@ module.exports = createCoreController(
           }
         }
 
-        // ------------------------------------------------------
-        // 1. Fetch course (for passing score + attempt limit)
-        // ------------------------------------------------------
-        if (!course) return ctx.badRequest(`Invalid course (id=${courseId})`);
-
-        const minPassingScoreRaw = Number(course.min_passing_score);
-        const minPassingScore = Number.isFinite(minPassingScoreRaw) ? minPassingScoreRaw : 0;
-        // quiz is a repeatable component → array
-        const maxAttempt = course.quiz?.[0]?.max_attempt ?? 1;
+        const minPassingScore = quizPassMark(course);
+        const maxAttempt = quizMaxAttempt(moduleQuiz);
 
         const lastAttempt = lastSubmission?.attempt_number || 0;
         const nextAttempt = lastAttempt + 1;
@@ -525,7 +559,7 @@ module.exports = createCoreController(
         // ------------------------------------------------------
         // 3. Calculate score securely (backend only)
         // ------------------------------------------------------
-        const scoreRaw = await calculateScore(strapi, courseId, answers, course);
+        const scoreRaw = await calculateScore(strapi, courseId, answers, course, moduleQuiz);
         const score = Number.isFinite(Number(scoreRaw)) ? Number(scoreRaw) : 0;
         const passed = score >= minPassingScore;
 
@@ -538,6 +572,7 @@ module.exports = createCoreController(
             where: {
               course: courseId,
               users_permissions_user: userIdNum,
+              ...reattemptModuleWhere(moduleId),
               request_status: "Approved",
               requested_for_attempt: nextAttempt,
             },
@@ -559,6 +594,7 @@ module.exports = createCoreController(
               where: {
                 course: courseId,
                 users_permissions_user: userIdNum,
+                ...reattemptModuleWhere(moduleId),
                 request_status: "Approved",
               },
               orderBy: { requested_for_attempt: "asc" },
@@ -601,6 +637,7 @@ module.exports = createCoreController(
               where: {
                 course: courseId,
                 users_permissions_user: userIdNum,
+                ...reattemptModuleWhere(moduleId),
                 request_status: "Approved",
                 requested_for_attempt: approvedRequest.requested_for_attempt,
               },
@@ -688,6 +725,8 @@ module.exports = createCoreController(
               score,
               passed,
               course: Number(courseId),
+              module_id: moduleId,
+              module_title: quizModule.title || null,
               submitted_by: userIdNum,
               attempt_number: nextAttempt,
               submitted_at,
@@ -730,6 +769,14 @@ module.exports = createCoreController(
           }));
         }
   
+        // Module completion / course status from this result. Done here (not only in the
+        // quiz-submission lifecycle) because the lifecycle result does not carry its relations.
+        try {
+          await recomputeProgress(strapi, { userId: userIdNum, courseId: Number(courseId), course });
+        } catch (err) {
+          strapi.log.error("[quiz-submit] progress recompute failed:", err?.message || err);
+        }
+
         // When user failed and this attempt used all allowed attempts → show re-attempt (e.g. max_attempt=1, failed 1st time)
         const reattemptRequired = !passed && nextAttempt >= maxAttempt;
 
@@ -741,6 +788,7 @@ module.exports = createCoreController(
               where: {
                 course: Number(courseId),
                 users_permissions_user: Number(userId),
+                ...reattemptModuleWhere(moduleId),
                 request_status: "Pending",
               },
             });
@@ -749,14 +797,6 @@ module.exports = createCoreController(
 
         // Non-blocking post-submit tasks to keep API latency low under load.
         setImmediate(async () => {
-          try {
-            /** @type {any} */
-            const userProgressController = strapi.controller("api::user-progress.user-progress");
-            await userProgressController.updateAfterQuiz(courseId, userId, passed);
-          } catch (err) {
-            strapi.log.error("updateAfterQuiz error:", err);
-          }
-
           try {
             /** @type {any} */
             const strapiAny = strapi;
@@ -775,11 +815,11 @@ module.exports = createCoreController(
             const courseDocumentId = course?.documentId || null;
             const companyCandidates = Array.isArray(course?.company) ? course.company : course?.company ? [course.company] : [];
             const company = companyCandidates[0]?.name || null;
-            const meta = { courseId, userId, score, passed, courseTitle, userName, courseDocumentId, company };
+            const meta = { courseId, userId, moduleId, moduleTitle: quizModule.title || null, score, passed, courseTitle, userName, courseDocumentId, company };
             await notifUtil.sendNotification(
               "quiz_submitted",
               "Quiz Submitted",
-              `${userName || `User #${userId}`} has submitted the quiz${courseTitle ? ` for \"${courseTitle}\"` : ""}. Score: ${score}% - ${passed ? "PASSED" : "FAILED"}. Please review the result in the admin panel.`,
+              `${userName || `User #${userId}`} has submitted the quiz${quizModule.title ? ` for module \"${quizModule.title}\"` : ""}${courseTitle ? ` in \"${courseTitle}\"` : ""}. Score: ${score}% - ${passed ? "PASSED" : "FAILED"}. Please review the result in the admin panel.`,
               [],
               meta,
               ["admin", "LMadmin"],
@@ -794,6 +834,8 @@ module.exports = createCoreController(
         message: "Quiz submitted successfully",
         submission: populatedSubmission || entry,
         maxAttempt,
+        module_id: moduleId,
+        pass_mark: minPassingScore,
         has_pending_reattempt: hasPendingReattempt,
         ...(reattemptRequired && { reattempt_required: true }),
       });

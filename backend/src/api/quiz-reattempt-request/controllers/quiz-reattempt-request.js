@@ -11,13 +11,45 @@ const {
 
 const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-async function getLatestRejectedForUserCourse(strapi, userId, courseId, allowRerequestAfter24h = false) {
+/**
+ * Module a reattempt request is about: the requested module, else the module of the learner's
+ * latest quiz submission for the course (older clients do not send a moduleId).
+ */
+async function resolveRequestModule(strapi, userId, courseId, moduleIdParam) {
+  if (moduleIdParam) {
+    const course = await strapi.db.query("api::course.course").findOne({
+      where: { id: Number(courseId) },
+      populate: { modules: { select: ["id", "module_id", "title", "module_type"] } },
+    });
+    const m = (course?.modules || []).find(
+      (x) => String(x.module_id) === String(moduleIdParam) || String(x.id) === String(moduleIdParam)
+    );
+    if (m) return { module_id: m.module_id, module_title: m.title || null };
+  }
+  const latest = await strapi.db.query("api::quiz-submission.quiz-submission").findOne({
+    where: { submitted_by: Number(userId), course: Number(courseId) },
+    orderBy: { submitted_at: "desc" },
+    select: ["module_id", "module_title"],
+  });
+  return latest ? { module_id: latest.module_id ?? null, module_title: latest.module_title ?? null } : { module_id: null, module_title: null };
+}
+
+/**
+ * Filter for one module's requests/submissions. Rows without a module (admin-created or from
+ * before quizzes moved onto modules) count as course-wide and match every module.
+ */
+function moduleWhere(moduleId) {
+  return moduleId ? { $or: [{ module_id: moduleId }, { module_id: { $null: true } }, { module_id: '' }] } : {};
+}
+
+async function getLatestRejectedForUserCourse(strapi, userId, courseId, allowRerequestAfter24h = false, moduleId = null) {
   const list = await strapi.db
     .query("api::quiz-reattempt-request.quiz-reattempt-request")
     .findMany({
       where: {
         users_permissions_user: Number(userId),
         course: Number(courseId),
+        ...moduleWhere(moduleId),
         request_status: "Rejected",
       },
       orderBy: { updatedAt: "desc" },
@@ -73,6 +105,7 @@ module.exports = createCoreController(
       const body = ctx.state.quizReattemptBody || ctx.request.body || {};
       const normalizedBody = body?.data ?? body;
       const { userId, courseId } = normalizedBody;
+      const moduleIdParam = normalizedBody?.moduleId ?? normalizedBody?.module_id ?? null;
 
       // CHANGE 1: Extract courseVersion / course_version from normalizedBody or body
       // Payload value is only a fallback; the course's own course_version is used when available (resolved below).
@@ -94,12 +127,16 @@ module.exports = createCoreController(
       });
       if (courseRow?.course_version) courseVersion = courseRow.course_version;
 
+      // Reattempts are per module quiz.
+      const { module_id: moduleId, module_title: moduleTitle } = await resolveRequestModule(strapi, userId, courseId, moduleIdParam);
+
       const existing = await strapi.db
         .query("api::quiz-reattempt-request.quiz-reattempt-request")
         .findOne({
           where: {
             users_permissions_user: userId,
             course: courseId,
+            ...moduleWhere(moduleId),
             request_status: "Pending",
           },
         });
@@ -109,7 +146,7 @@ module.exports = createCoreController(
         return ctx.badRequest("You already have a pending reattempt request.");
       }
 
-      const recentRejection = await getLatestRejectedForUserCourse(strapi, userId, courseId, true);
+      const recentRejection = await getLatestRejectedForUserCourse(strapi, userId, courseId, true, moduleId);
       if (recentRejection) {
         strapi.log.info({ userId, courseId, recentRejectionId: recentRejection?.id }, '[quiz-reattempt send] recent rejection blocked');
         return ctx.badRequest(
@@ -120,7 +157,7 @@ module.exports = createCoreController(
       const lastSubmission = await strapi.db
         .query("api::quiz-submission.quiz-submission")
         .findOne({
-          where: { submitted_by: userId, course: courseId },
+          where: { submitted_by: userId, course: courseId, ...moduleWhere(moduleId) },
           orderBy: { attempt_number: "desc" },
         });
 
@@ -137,6 +174,7 @@ module.exports = createCoreController(
           where: {
             users_permissions_user: Number(userId),
             course: Number(courseId),
+            ...moduleWhere(moduleId),
             request_status: "Approved",
             requested_for_attempt: nextAttempt,
           },
@@ -158,6 +196,8 @@ module.exports = createCoreController(
             users_permissions_user: Number(userId),
             course: Number(courseId),
             course_version: courseVersion ? String(courseVersion) : null,
+            module_id: moduleId,
+            module_title: moduleTitle,
             request_status: "Pending",
             requested_for_attempt: nextAttempt,
           },
@@ -191,11 +231,11 @@ module.exports = createCoreController(
         } catch { /* keep null */ }
 
         // CHANGE 3: Pass courseVersion into notification metadata
-        const meta = { courseId, userId, courseVersion, courseTitle, userName };
+        const meta = { courseId, userId, courseVersion, courseTitle, userName, moduleId, moduleTitle };
         notifUtil.sendNotification(
           "quiz_reattempt_requested",
           "Quiz Reattempt Requested",
-          `${userName || `User #${userId}`} has requested a quiz reattempt${courseTitle ? ` for "${courseTitle}"` : ''}. Please review and approve or reject the request in the admin panel.`,
+          `${userName || `User #${userId}`} has requested a quiz reattempt${moduleTitle ? ` for module "${moduleTitle}"` : ''}${courseTitle ? ` in "${courseTitle}"` : ''}. Please review and approve or reject the request in the admin panel.`,
           [],
           meta,
           ["admin", "LMadmin"],
@@ -218,11 +258,12 @@ module.exports = createCoreController(
       const uid = Number(userId);
       const cid = Number(courseId);
       const cVersion =course_version || null;
+      const { module_id: moduleId } = await resolveRequestModule(strapi, uid, cid, ctx.query.moduleId ?? ctx.query.module_id ?? null);
 
       const lastSubmission = await strapi.db
         .query("api::quiz-submission.quiz-submission")
         .findOne({
-          where: { submitted_by: uid, course: cid },
+          where: { submitted_by: uid, course: cid, ...moduleWhere(moduleId) },
           orderBy: { attempt_number: "desc" },
         });
       const nextAttempt = lastSubmission ? lastSubmission.attempt_number + 1 : 1;
@@ -236,6 +277,7 @@ module.exports = createCoreController(
             where: {
               users_permissions_user: uid,
               course: cid,
+              ...moduleWhere(moduleId),
               request_status: "Pending",
             },
           }),
@@ -245,11 +287,12 @@ module.exports = createCoreController(
             where: {
               users_permissions_user: uid,
               course: cid,
+              ...moduleWhere(moduleId),
               request_status: "Approved",
               requested_for_attempt: nextAttempt,
             },
           }),
-        getLatestRejectedForUserCourse(strapi, uid, cid, false),
+        getLatestRejectedForUserCourse(strapi, uid, cid, false, moduleId),
       ]);
 
       let approvedRequest = approved;
@@ -260,6 +303,7 @@ module.exports = createCoreController(
             where: {
               users_permissions_user: uid,
               course: cid,
+              ...moduleWhere(moduleId),
               request_status: "Approved",
             },
             orderBy: { requested_for_attempt: "asc" },
@@ -287,6 +331,7 @@ module.exports = createCoreController(
         approvedForAttempt: approvedRequest?.requested_for_attempt ?? null,
         hasRejected: hasRejectedWithin24h,
         canRequestAgainAt: hasRejectedWithin24h ? canRequestAgainAt : null,
+        module_id: moduleId,
       });
     },
 

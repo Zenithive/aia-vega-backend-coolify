@@ -19,6 +19,15 @@
         "Gujarati"
       ]
     },
+    "module_type": {
+      "type": "enumeration",
+      "required": true,
+      "default": "Online",
+      "enum": [
+        "Online",
+        "Offline"
+      ]
+    },
     "title": {
       "type": "string",
       "maxLength": 100,
@@ -31,7 +40,17 @@
         "Video",
         "Pdf",
         "Text"
-      ]
+      ],
+      "conditions": {
+        "visible": {
+          "==": [
+            {
+              "var": "module_type"
+            },
+            "Online"
+          ]
+        }
+      }
     },
     "video_file": {
       "type": "media",
@@ -115,6 +134,21 @@
       "customField": "plugin::ckeditor5.CKEditor",
       "options": {
         "preset": "defaultHtml"
+      }
+    },
+    "quiz": {
+      "type": "component",
+      "component": "quiz.quiz",
+      "repeatable": false,
+      "conditions": {
+        "visible": {
+          "==": [
+            {
+              "var": "module_type"
+            },
+            "Online"
+          ]
+        }
       }
     }
   },

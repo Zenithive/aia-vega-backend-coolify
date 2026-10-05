@@ -8,6 +8,7 @@ const COURSE_ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
 const { ensureDepartmentForUser } = require('./utils/ensure-department-for-user');
 const { syncCourseLanguageComponents } = require('./utils/sync-course-language-components');
 const { autoGenerateComponentIds } = require('./utils/auto-generate-component-ids');
+const { normalizeCourseModules } = require('./utils/course-modules');
 const {
   applyCourseGroupId,
   backfillMissingCourseGroupIds,
@@ -423,6 +424,8 @@ module.exports = {
           } catch (err) {
             strapi.log.warn('syncCourseLanguageComponents failed', err);
           }
+          // Online/Offline modules: Offline modules carry no online content or quiz; module quizzes use the module language.
+          normalizeCourseModules(data);
         }
       }
       return await next();
@@ -821,6 +824,14 @@ module.exports = {
       registerCourseVersionStamp(strapi);
     } catch (e) {
       strapi.log.error('Course-version stamp bootstrap failed:', e?.message || e);
+    }
+
+    // Offline module proof uploaded/removed → module completion + learner progress
+    try {
+      const { registerOfflineModuleCompletionLifecycles } = require('./lifecycles/offline-module-completion');
+      registerOfflineModuleCompletionLifecycles(strapi);
+    } catch (e) {
+      strapi.log.error('Offline module completion bootstrap failed:', e?.message || e);
     }
 
     // Feedback-submission: admin notification when created via Content Manager

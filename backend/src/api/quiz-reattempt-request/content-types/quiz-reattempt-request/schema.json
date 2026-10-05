@@ -48,6 +48,12 @@
     "course_version": {
       "type": "string",
       "required": true
+    },
+    "module_id": {
+      "type": "string"
+    },
+    "module_title": {
+      "type": "string"
     }
   }
 }

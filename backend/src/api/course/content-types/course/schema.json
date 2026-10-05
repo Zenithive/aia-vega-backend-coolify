@@ -64,11 +64,6 @@
       "repeatable": true,
       "required": true
     },
-    "quiz": {
-      "type": "component",
-      "component": "quiz.quiz",
-      "repeatable": true
-    },
     "min_passing_score": {
       "type": "customField",
       "customField": "global::number-range",

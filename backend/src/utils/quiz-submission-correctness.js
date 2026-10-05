@@ -2,6 +2,7 @@
 'use strict';
 
 const COURSE_UID = 'api::course.course';
+const { MODULE_QUIZ_POPULATE, collectModuleQuizzes } = require('./course-modules');
 
 function normalizeToken(v) {
   if (v == null) return '';
@@ -90,22 +91,12 @@ async function populateAnswerCorrectField(strapi, data) {
 
   const course = await strapi.db.query(COURSE_UID).findOne({
     where: { id: Number(courseId) },
-    populate: {
-      quiz: {
-        populate: {
-          quiz_questions: {
-            populate: {
-              correct_multiSelect_answers: true,
-              options: true,
-            },
-          },
-        },
-      },
-    },
+    populate: { modules: { populate: MODULE_QUIZ_POPULATE } },
   });
 
+  // Quizzes live on online modules; question_ids are unique across the course.
   const quizQuestions = [];
-  (Array.isArray(course?.quiz) ? course.quiz : []).forEach((qz) => {
+  collectModuleQuizzes(course).forEach((qz) => {
     if (Array.isArray(qz?.quiz_questions)) quizQuestions.push(...qz.quiz_questions);
   });
   if (quizQuestions.length === 0) return;

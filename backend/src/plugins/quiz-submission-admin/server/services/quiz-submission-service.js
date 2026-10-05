@@ -36,7 +36,8 @@ function appendCorrectnessSuffix(answerText, answer = {}) {
 
 function buildQuestionOptionMap(course = {}) {
   const map = new Map();
-  const quizzes = Array.isArray(course?.quiz) ? course.quiz : [];
+  // Quizzes live on online modules (course → modules[] → quiz).
+  const quizzes = (Array.isArray(course?.modules) ? course.modules : []).map((m) => m?.quiz).filter(Boolean);
   for (const quiz of quizzes) {
     const questions = Array.isArray(quiz?.quiz_questions) ? quiz.quiz_questions : [];
     for (const question of questions) {
@@ -89,7 +90,7 @@ module.exports = ({ strapi }) => ({
     const hasCourseFilter = selectedCourseId !== '';
 
     const submissions = await strapi.db.query(QUIZ_UID).findMany({
-      populate: ['answers', 'submitted_by', 'course', 'course.company', 'course.quiz', 'course.quiz.quiz_questions', 'course.quiz.quiz_questions.options'],
+      populate: ['answers', 'submitted_by', 'course', 'course.company', 'course.modules', 'course.modules.quiz', 'course.modules.quiz.quiz_questions', 'course.modules.quiz.quiz_questions.options'],
       orderBy: { submitted_at: 'desc' },
     });
 
@@ -112,14 +113,14 @@ module.exports = ({ strapi }) => ({
       return courseIdValue === selectedCourseId || courseDocumentIdValue === selectedCourseId;
     });
 
-    // Keep only latest submission per user+course to avoid duplicate rows.
+    // Keep only the latest submission per user + course + module quiz to avoid duplicate rows.
     const latestByUserCourse = new Map();
     for (const submission of filtered) {
       const user = submission.submitted_by || {};
       const course = submission.course || {};
       const userKey = String(user.id || user.documentId || user.emp_code || user.emp_id || 'unknown-user');
       const courseKey = String(course.id || course.documentId || 'unknown-course');
-      const key = `${userKey}::${courseKey}`;
+      const key = `${userKey}::${courseKey}::${submission.module_id || ''}`;
       const currentTs = new Date(submission.submitted_at || submission.createdAt || 0).getTime();
       const previous = latestByUserCourse.get(key);
       const previousTs = previous ? new Date(previous.submitted_at || previous.createdAt || 0).getTime() : -1;
@@ -145,6 +146,7 @@ module.exports = ({ strapi }) => ({
         emp_name: getEmployeeName(user),
         emp_id: user.emp_id || '-',
         emp_code: user.emp_code || '-',
+        module: submission.module_title || '-',
         score: `${correct}/${totalQuestions} (${percentage}%)`,
       };
 
@@ -182,6 +184,7 @@ module.exports = ({ strapi }) => ({
       { key: 'emp_name', label: 'Employee Name' },
       { key: 'emp_id', label: 'Employee ID (Vega)' },
       { key: 'emp_code', label: 'Employee Code (AIA)' },
+      { key: 'module', label: 'Module' },
       { key: 'score', label: 'Score' },
       ...questionOrder,
     ];

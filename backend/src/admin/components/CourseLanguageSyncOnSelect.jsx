@@ -1,6 +1,6 @@
 //@ts-nocheck
 
-// One entry per language for quiz/feedback/orientation. When removing languages, entries for removed languages are dropped.
+// One entry per language for feedback/orientation. When removing languages, entries for removed languages are dropped.
 function syncComponentArray(current, languages, createPlaceholder) {
   const N = languages.length;
   const list = Array.isArray(current) ? [...current] : [];
@@ -25,9 +25,9 @@ function syncComponentArray(current, languages, createPlaceholder) {
 }
 /**
  * When the Course edit view is open and the user changes "Course language",
- * this syncs the 3 repeatables (modules, quiz, feedback) to one entry per
- * language. Inner repeatables (quiz_questions, feedback_question, etc.) are
- * not synced – only the top-level 3 component entries are created per language.
+ * this syncs the repeatables (modules, feedback) to one entry per
+ * language. Inner repeatables (module quiz questions, feedback_question, etc.) are
+ * not synced – only the top-level component entries are created per language.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -196,6 +196,7 @@ function createModulePlaceholder(lang) {
     __temp_key__: `lang-${lang}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     language: lang,
     module_id: generateId('mod'),
+    module_type: 'Online',
     title: '',
     module_content_type: 'Text',
     mark_as_read: false,
@@ -203,14 +204,18 @@ function createModulePlaceholder(lang) {
   };
 }
 
-function createQuizPlaceholder(lang) {
+/** A cloned module quiz needs its own ids (quiz_id is unique; question ids identify answers). */
+function cloneModuleQuiz(quiz) {
+  if (!quiz || typeof quiz !== 'object') return quiz ?? null;
+  const cleaned = cloneWithoutKeys(quiz, ['id', '__temp_key__']);
   return {
-    __temp_key__: `lang-${lang}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    language: lang,
+    ...cleaned,
     quiz_id: generateId('quiz'),
-    title: '',
-    quiz_questions: [],
-    quiz_instruction: [],
+    quiz_questions: ensureArray(cleaned.quiz_questions).map((q) => ({
+      ...cloneWithoutKeys(q, ['id', '__temp_key__']),
+      question_id: generateId('q'),
+    })),
+    quiz_instruction: ensureArray(cleaned.quiz_instruction),
   };
 }
 
@@ -247,9 +252,9 @@ function shouldExpandAfterSingleAdd(currentLength, previousLength, languageCount
 }
 
 function buildSyncedValues(values, nextLanguages, prevLanguages) {
-  // For modules: blocks (supports add-entry); for quiz/feedback: one entry per language
+  // For modules: blocks (supports add-entry); for feedback: one entry per language.
+  // Quizzes live inside online modules, so there is no course-level quiz to sync.
   const syncedModules = syncModuleBlocks(values.modules, prevLanguages, nextLanguages, (lang) => createModulePlaceholder(lang));
-  const syncedQuiz = syncRepeatableBlocks(values.quiz, prevLanguages, nextLanguages, (lang) => createQuizPlaceholder(lang), 'quiz');
   const syncedFeedback = syncRepeatableBlocks(values.feedback, prevLanguages, nextLanguages, (lang) => createFeedbackPlaceholder(lang), 'fb');
   const orientationRequired = values.orientation_required === true;
   const syncedOrientation = orientationRequired
@@ -258,11 +263,6 @@ function buildSyncedValues(values, nextLanguages, prevLanguages) {
 
   // Ensure every repeatable value is an array and nested repeatables are arrays (avoids value.map is not a function)
   const normalizedModules = ensureArray(syncedModules);
-  const normalizedQuiz = ensureArray(syncedQuiz).map((q) => ({
-    ...q,
-    quiz_questions: ensureArray(q.quiz_questions),
-    quiz_instruction: ensureArray(q.quiz_instruction),
-  }));
   const normalizedFeedback = ensureArray(syncedFeedback);
   const normalizedOrientation = ensureArray(syncedOrientation).map((o) => ({
     ...(o || {}),
@@ -272,7 +272,6 @@ function buildSyncedValues(values, nextLanguages, prevLanguages) {
   return {
     ...values,
     modules: normalizedModules,
-    quiz: normalizedQuiz,
     feedback: normalizedFeedback,
     orientation_detail: normalizedOrientation,
   };
@@ -306,6 +305,8 @@ function expandLastModuleSetToLanguages(modules, languages) {
       ...cleaned,
       language: cleaned.language,
       module_id: generateId('mod'),   // each language variant gets its own unique id
+      module_type: cleaned.module_type || 'Online',
+      quiz: cloneModuleQuiz(cleaned.quiz),
       module_duration_min: cleaned.module_duration_min ?? 1,
       __temp_key__: `mod-expand-${idx}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     };
@@ -351,24 +352,6 @@ function findRemovedEntryIndex(previousItems, currentItems) {
   return -1;
 }
 
-function expandLastQuizSetToLanguages(quiz, languages) {
-  const expanded = expandLastSetToLanguages(quiz, languages);
-  if (!expanded) return null;
-
-  return expanded.map((q, idx) => {
-    const base = typeof q === 'object' && q != null ? q : {};
-    const cleaned = cloneWithoutKeys(base, ['quiz_id', '__temp_key__']);
-    return {
-      ...cleaned,
-      language: cleaned.language,
-      quiz_id: generateId('quiz'),
-      quiz_questions: ensureArray(cleaned.quiz_questions),
-      quiz_instruction: ensureArray(cleaned.quiz_instruction),
-      __temp_key__: `quiz-expand-${idx}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    };
-  });
-}
-
 function expandLastFeedbackSetToLanguages(feedback, languages) {
   const expanded = expandLastSetToLanguages(feedback, languages);
   if (!expanded) return null;
@@ -405,7 +388,7 @@ function expandLastOrientationSetToLanguages(orientation, languages) {
 /**
  * Injected into content-manager editView.right-links.
  * When user selects languages in Course language dropdown, auto-creates one entry per language for:
- * modules, quiz, feedback, and orientation_detail (when orientation is required).
+ * modules, feedback, and orientation_detail (when orientation is required).
  */
 function CourseLanguageSyncOnSelect({ slug, model }) {
   const uid = slug || model;
@@ -416,7 +399,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
   const prevModulesRef = useRef([]);
   const prevLengthsRef = useRef({
     modules: 0,
-    quiz: 0,
     feedback: 0,
     orientation_detail: 0,
   });
@@ -427,7 +409,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
     const languages = getLanguageList(values.course_language);
     const N = languages.length;
     const modules = ensureArray(values.modules);
-    const quiz = ensureArray(values.quiz);
     const feedback = ensureArray(values.feedback);
     const orientationRequired = values.orientation_required === true;
     const orientationDetail = ensureArray(values.orientation_detail);
@@ -445,7 +426,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
       const synced = buildSyncedValues(values, languages, prevLang);
       prevLengthsRef.current = {
         modules: synced.modules.length,
-        quiz: synced.quiz.length,
         feedback: synced.feedback.length,
         orientation_detail: synced.orientation_detail.length,
       };
@@ -461,7 +441,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
       const synced = buildSyncedValues(values, languages, prevLang);
       prevLengthsRef.current = {
         modules: synced.modules.length,
-        quiz: synced.quiz.length,
         feedback: synced.feedback.length,
         orientation_detail: synced.orientation_detail.length,
       };
@@ -474,7 +453,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
       prevOrientationRequiredRef.current = orientationRequired;
       prevLengthsRef.current = {
         modules: modules.length,
-        quiz: quiz.length,
         feedback: feedback.length,
         orientation_detail: 0,
       };
@@ -501,7 +479,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
             prevOrientationRequiredRef.current = orientationRequired;
             prevLengthsRef.current = {
               modules: prevModules.length,
-              quiz: quiz.length,
               feedback: feedback.length,
               orientation_detail: orientationDetail.length,
             };
@@ -515,12 +492,33 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
           prevOrientationRequiredRef.current = orientationRequired;
           prevLengthsRef.current = {
             modules: filteredModules.length,
-            quiz: quiz.length,
             feedback: feedback.length,
             orientation_detail: orientationDetail.length,
           };
           prevModulesRef.current = filteredModules;
           setValues({ ...values, modules: filteredModules });
+          return;
+        }
+      }
+    }
+
+    // 3b. Online/Offline belongs to the module, not to one language version:
+    //     when it changes on one entry, apply it to every language entry of the same module block.
+    if (N > 1 && modules.length === prevModules.length && modules.length % N === 0) {
+      const changedIdx = modules.findIndex(
+        (m, idx) => (m?.module_type || 'Online') !== (prevModules[idx]?.module_type || 'Online')
+      );
+      if (changedIdx >= 0) {
+        const nextType = modules[changedIdx]?.module_type || 'Online';
+        const blockStart = Math.floor(changedIdx / N) * N;
+        const synced = modules.map((m, idx) =>
+          idx >= blockStart && idx < blockStart + N && (m?.module_type || 'Online') !== nextType
+            ? { ...m, module_type: nextType }
+            : m
+        );
+        if (synced.some((m, idx) => m !== modules[idx])) {
+          prevModulesRef.current = synced;
+          setValues({ ...values, modules: synced });
           return;
         }
       }
@@ -542,18 +540,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
         };
         prevModulesRef.current = expanded;
         setValues({ ...values, modules: expanded });
-        return;
-      }
-    }
-    if (shouldExpandAfterSingleAdd(quiz.length, prevLengths.quiz, N)) {
-      const expanded = expandLastQuizSetToLanguages(quiz, languages);
-      if (expanded) {
-        prevLangRef.current = languages;
-        prevLengthsRef.current = {
-          ...prevLengths,
-          quiz: expanded.length,
-        };
-        setValues({ ...values, quiz: expanded });
         return;
       }
     }
@@ -588,7 +574,6 @@ function CourseLanguageSyncOnSelect({ slug, model }) {
     prevOrientationRequiredRef.current = orientationRequired;
     prevLengthsRef.current = {
       modules: modules.length,
-      quiz: quiz.length,
       feedback: feedback.length,
       orientation_detail: orientationDetail.length,
     };

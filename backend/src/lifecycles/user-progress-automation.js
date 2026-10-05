@@ -1,5 +1,7 @@
 'use strict';
 
+const { recomputeProgress, ensureOfflineCompletionEntries, loadProgress } = require('../utils/course-modules');
+
 const USER_PROGRESS_UID = 'api::user-progress.user-progress';
 const COURSE_ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
 const QUIZ_SUBMISSION_UID = 'api::quiz-submission.quiz-submission';
@@ -799,6 +801,24 @@ async function createUserProgressEntries(strapi, courseId, userIds) {
 }
 
 /**
+ * Create an offline-module-completion entry (no proof yet) per user for each offline module of the course,
+ * so admins only fill in proof, remarks, completed_at and assessed_by. Courses without offline modules are skipped.
+ */
+async function createOfflineCompletionEntries(strapi, courseId, userIds) {
+  if (!courseId || !Array.isArray(userIds) || userIds.length === 0) return;
+  let changed = 0;
+  for (const userId of [...new Set(userIds)]) {
+    try {
+      const progress = await loadProgress(strapi, userId, courseId);
+      changed += await ensureOfflineCompletionEntries(strapi, { userId, courseId, language: progress?.selected_language });
+    } catch (e) {
+      strapi.log.warn('createOfflineCompletionEntries failed (userId=%s):', userId, e?.message || String(e));
+    }
+  }
+  if (changed > 0) strapi.log.info('user-progress-automation: created/updated %d offline-module-completion entries', changed);
+}
+
+/**
  * When a new course-assignment is created for a course:
  *  1. Find all OTHER published assignments for that same course (excluding the new one).
  *  2. Mark them active='unpublished'.
@@ -1060,6 +1080,7 @@ function registerUserProgressLifecycles(strapi) {
           const numericCourseId = await resolveCourseIdForDb(strapi, rawCourseId);
           if (!numericCourseId) continue;
           await createUserProgressEntries(strapi, numericCourseId, userIds);
+          await createOfflineCompletionEntries(strapi, numericCourseId, userIds);
           if (targetType !== 'Individual') {
             await createCourseAssignmentEntries(strapi, numericCourseId, userIds, due_date, active, payload?.company);
           }
@@ -1125,62 +1146,24 @@ function registerUserProgressLifecycles(strapi) {
     async afterCreate(event) {
       try {
         const { result } = event;
-        const userId = getUserId(result.submitted_by) ?? result.submitted_by_id;
-        const courseId = getCourseId(result.course) ?? result.course_id;
-        const passed = result.passed === true;
+        let userId = getUserId(result.submitted_by) ?? result.submitted_by_id;
+        let courseId = getCourseId(result.course) ?? result.course_id;
+        if ((!userId || !courseId) && result?.id != null) {
+          // The lifecycle result does not include relations; read them from the saved row.
+          const row = await strapi.db.query(QUIZ_SUBMISSION_UID).findOne({
+            where: { id: result.id },
+            populate: { submitted_by: { select: ['id'] }, course: { select: ['id'] } },
+          });
+          userId = userId ?? row?.submitted_by?.id;
+          courseId = courseId ?? row?.course?.id;
+        }
         if (!userId || !courseId) return;
 
         const numCourseId = await resolveCourseIdForDb(strapi, courseId);
         if (!numCourseId) return;
 
-        const progress = await strapi.db.query(USER_PROGRESS_UID).findOne({
-          where: { user: userId, course: numCourseId },
-        });
-        if (!progress) return;
-
-        // Fetch course for module count + feedback compulsory flag
-        const course = await strapi.db.query(COURSE_UID).findOne({
-          where: { id: numCourseId },
-          populate: { modules: true, feedback: true },
-        });
-        // Filter modules by the user's selected language
-        const effectiveLang = progress.selected_language ?? null;
-        const allModules = Array.isArray(course?.modules) ? course.modules : [];
-        const langNorm = effectiveLang ? effectiveLang.trim().toLowerCase() : null;
-        const langModules = langNorm
-          ? allModules.filter((m) => (m.language || '').trim().toLowerCase() === langNorm)
-          : allModules;
-        const totalModules = (langModules.length > 0 ? langModules : allModules).length;
-        const completedModules = Array.isArray(progress.completed_modules) ? progress.completed_modules : [];
-        const modulePct = totalModules > 0 ? Math.round((completedModules.length / totalModules) * 90) : 0;
-        // Quiz = 10% always; feedback has no weight → passing quiz completes the course
-        const quizPct = 10;
-        const now = new Date();
-
-        let updateData;
-        if (passed) {
-          // Quiz passed → course complete at modulePct + 10%
-          updateData = {
-            progress_status: 'Completed',
-            progress_percentage: modulePct + quizPct,
-            completed_at: now,
-            last_accessed_at: now,
-            certificate_issued: true,
-          };
-        } else {
-          // Failed: keep module-only percentage
-          updateData = {
-            progress_status: 'Failed',
-            progress_percentage: modulePct,
-            completed_at: null,
-            last_accessed_at: now,
-          };
-        }
-
-        await strapi.db.query(USER_PROGRESS_UID).update({
-          where: { id: progress.id },
-          data: updateData,
-        });
+        // Module quiz passed/failed → re-derive module completion, percentage and course status.
+        await recomputeProgress(strapi, { userId: Number(userId), courseId: numCourseId });
       } catch (e) {
         strapi.log.error('user-progress-automation (quiz-submission afterCreate):', e?.message || e);
       }
@@ -1220,6 +1203,7 @@ async function processCourseAssignmentCreate(strapi, params, result) {
     }
     strapi.log.info('user-progress-automation: creating entries (%d users, courseId=%s, targetType=%s)', userIds.length, courseId, targetType);
     await createUserProgressEntries(strapi, courseId, userIds);
+    await createOfflineCompletionEntries(strapi, courseId, userIds);
     if (targetType !== 'Individual') {
       await createCourseAssignmentEntries(strapi, courseId, userIds, due_date, active);
     }

@@ -189,10 +189,10 @@ export function LearningPersonalView({
             <StatCard label="Courses In Progress" value={kpis.coursesInProgress ?? 0} colorIndex={6} />
           </Box>
           <Box style={{ flex: '1 1 200px', minWidth: 160 }}>
-            <StatCard label="Last Course Viewed" value={kpis.lastCourseViewed?.courseTitle ?? '—'} />
+            <StatCard label="Last Course Viewed" value={kpis.lastCourseViewed?.courseTitle ?? '—'} textValue />
           </Box>
           <Box style={{ flex: '1 1 200px', minWidth: 160 }}>
-            <StatCard label="Last Course Completed" value={kpis.lastCourseCompleted?.courseTitle ?? '—'} />
+            <StatCard label="Last Course Completed" value={kpis.lastCourseCompleted?.courseTitle ?? '—'} textValue />
           </Box>
         </Flex>
       )}

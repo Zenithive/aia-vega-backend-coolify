@@ -34,11 +34,16 @@ const CONTENT_TYPE_ID_CONFIG = {
   'api::course.course': {
     // Keep top-level module_id generation controlled by CourseLanguageSyncOnSelect
     // to avoid racing with language fanout on "Add an entry".
-    modules: { nested: {} },
-    quiz: {
-      // Keep top-level quiz_id generation controlled by CourseLanguageSyncOnSelect.
+    // Each online module can hold one quiz (single component) with its questions.
+    modules: {
       nested: {
-        quiz_questions: { idKey: 'question_id', prefix: 'q', nested: {} },
+        quiz: {
+          idKey: 'quiz_id',
+          prefix: 'quiz',
+          nested: {
+            quiz_questions: { idKey: 'question_id', prefix: 'q', nested: {} },
+          },
+        },
       },
     },
   },
@@ -89,6 +94,18 @@ function fillIdsInObject(obj, config, didFillRef, options = {}) {
       continue;
     }
     if (!spec.idKey) continue;
+    // Single (non-repeatable) component with an id field, e.g. a module's quiz.
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const current = val[spec.idKey];
+      if (forceRegenerate || current === undefined || current === null || String(current).trim() === '') {
+        val[spec.idKey] = generateId(spec.prefix);
+        didFillRef.current = true;
+      }
+      if (spec.nested && Object.keys(spec.nested).length > 0) {
+        fillIdsInObject(val, spec.nested, didFillRef, options);
+      }
+      continue;
+    }
     const arr = val;
     if (!Array.isArray(arr)) continue;
     for (let i = 0; i < arr.length; i++) {
@@ -117,19 +134,14 @@ function forceRegenerateCourseIds(values) {
       if (!m || typeof m !== 'object') return;
       m.module_id = regen('mod');
       changed = true;
-    });
-  }
-
-  if (Array.isArray(values.quiz)) {
-    values.quiz.forEach((q) => {
+      // Module quiz (online modules) needs fresh quiz/question ids on a duplicate too.
+      const q = m.quiz;
       if (!q || typeof q !== 'object') return;
       q.quiz_id = regen('quiz');
-      changed = true;
       if (Array.isArray(q.quiz_questions)) {
         q.quiz_questions.forEach((qq) => {
           if (!qq || typeof qq !== 'object') return;
           qq.question_id = regen('q');
-          changed = true;
         });
       }
     });

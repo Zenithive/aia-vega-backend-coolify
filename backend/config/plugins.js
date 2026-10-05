@@ -56,6 +56,14 @@ module.exports = ({ env }) => ({
   },
 
   /**
+   * Local plugin: Offline Assessments (completion proof for offline course modules)
+   */
+  'offline-assessments': {
+    enabled: true,
+    resolve: './src/plugins/offline-assessments',
+  },
+
+  /**
    * 📧 Email Provider (Nodemailer)
    */
   email: {

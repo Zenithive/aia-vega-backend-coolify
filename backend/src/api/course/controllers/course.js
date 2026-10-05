@@ -12,6 +12,13 @@ const { createCoreController } = require('@strapi/strapi').factories;
 
 const COURSE_UID = 'api::course.course';
 const COURSE_ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
+const { MODULE_QUIZ_POPULATE } = require('../../../utils/course-modules');
+
+const COURSE_MODULE_POPULATE = {
+  video_file: true,
+  pdf_file: true,
+  ...MODULE_QUIZ_POPULATE,
+};
 
 function filterCourseByLanguage(course, language) {
   if (!language || !course) return course;
@@ -23,13 +30,6 @@ function filterCourseByLanguage(course, language) {
     filteredCourse.modules = filteredCourse.modules.filter((module) => {
       const moduleLang = typeof module?.language === 'string' ? module.language.toLowerCase() : '';
       return moduleLang === lang;
-    });
-  }
-
-  if (filteredCourse.quiz && Array.isArray(filteredCourse.quiz)) {
-    filteredCourse.quiz = filteredCourse.quiz.filter((quiz) => {
-      const quizLang = typeof quiz?.language === 'string' ? quiz.language.toLowerCase() : '';
-      return quizLang === lang;
     });
   }
 
@@ -176,22 +176,8 @@ module.exports = createCoreController('api::course.course', ({ strapi }) => ({
         active: { $ne: false },
       },
       populate: {
-        modules: { populate: '*' },
-        quiz: {
-          populate: {
-            quiz_questions: {
-              populate: {
-                options: true,
-                correct_multiSelect_answers: true
-              }
-            },
-            quiz_instruction: {
-              populate: {
-                checklist: true
-              }
-            }
-          }
-        },
+        // Quizzes belong to online modules (course → modules[] → quiz).
+        modules: { populate: COURSE_MODULE_POPULATE },
         thumbnail: true,
         company: { fields: ['name'] },
         // Feedback questions live on the linked Feedback Template
@@ -222,22 +208,8 @@ module.exports = createCoreController('api::course.course', ({ strapi }) => ({
     ctx.query = {
       ...ctx.query,
       populate: {
-        modules: { populate: '*' },
-        quiz: {
-          populate: {
-            quiz_questions: {
-              populate: {
-                options: true,
-                correct_multiSelect_answers: true
-              }
-            },
-            quiz_instruction: {
-              populate: {
-                checklist: true
-              }
-            }
-          }
-        },
+        // Quizzes belong to online modules (course → modules[] → quiz).
+        modules: { populate: COURSE_MODULE_POPULATE },
         thumbnail: true,
         company: { fields: ['name'] },
         // Feedback questions live on the linked Feedback Template

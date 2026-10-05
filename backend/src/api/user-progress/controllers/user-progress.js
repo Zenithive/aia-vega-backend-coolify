@@ -1,55 +1,18 @@
 "use strict";
 
 const { createCoreController } = require("@strapi/strapi").factories;
-function _computeNextStep(completedCount, totalModules, course) {
-  if (!course || completedCount < totalModules) return 'continue';
-  const quizCompulsory = course.quiz?.[0]?.compulsory ?? false;
-  const feedbackCompulsory = course.feedback?.[0]?.compulsory ?? false;
-  if (quizCompulsory) return 'quiz_required';
-  if (feedbackCompulsory) return 'feedback_required';
-  return 'course_complete_allowed';
-}
-
-/**
- * Weighted progress: Modules = 90%, Quiz = 10%. Feedback has no percentage weight.
- * Passing the quiz always completes the course at 100%.
- */
-function _calcModulePct(completedCount, totalModules) {
-  if (totalModules <= 0) return 0;
-  return Math.round((completedCount / totalModules) * 90);
-}
-
-/**
- * Filter modules by selected language.
- * Each module component has a `language` enum field (English/Hindi/Gujarati).
- * Returns only modules matching the user's selected language.
- */
-function _filterModulesByLanguage(modules, language) {
-  if (!Array.isArray(modules)) return [];
-  if (!language) return modules;
-  const langNorm = language.trim().toLowerCase();
-  const filtered = modules.filter(
-    (m) => (m.language || '').trim().toLowerCase() === langNorm
-  );
-  // Fallback to all modules if no match (safety for courses without per-language modules)
-  return filtered.length > 0 ? filtered : modules;
-}
-
-function _buildModuleKeySet(modules) {
-  const keys = new Set();
-  (Array.isArray(modules) ? modules : []).forEach((m) => {
-    const idKey = m?.id != null ? String(m.id) : null;
-    const moduleIdKey = m?.module_id != null ? String(m.module_id) : null;
-    if (idKey) keys.add(idKey);
-    if (moduleIdKey) keys.add(moduleIdKey);
-  });
-  return keys;
-}
-
-function _countCompletedInModuleSet(completedModules, moduleKeySet) {
-  const completed = Array.isArray(completedModules) ? completedModules : [];
-  return completed.filter((v) => moduleKeySet.has(String(v))).length;
-}
+const {
+  modulesForLanguage,
+  findModule,
+  isOffline,
+  loadCourse,
+  loadProgress,
+  updateProgressRows,
+  computeModuleStates,
+  nextStepFor,
+  recomputeProgress,
+  ensureOfflineCompletionEntries,
+} = require("../../../utils/course-modules");
 
 async function resolveCourseId(strapi, courseId) {
   const num = Number(courseId);
@@ -60,12 +23,20 @@ async function resolveCourseId(strapi, courseId) {
   return course?.id ?? null;
 }
 
+/** Point the learner's offline-module-completion entries at the modules of their course language. */
+async function syncOfflineEntries(strapi, userId, courseId, language) {
+  try {
+    await ensureOfflineCompletionEntries(strapi, { userId, courseId, language });
+  } catch (e) {
+    strapi.log.warn(`startCourse: offline completion entries not synced: ${e?.message || e}`);
+  }
+}
 
 module.exports = createCoreController("api::user-progress.user-progress", ({ strapi }) => ({
 
   /**
    * User must choose language before starting the course.
-   * Language saved permanently in user-progress.language_selected.
+   * Language saved permanently in user-progress.selected_language.
    * User cannot change language after start.
    */
   async startCourse(ctx) {
@@ -103,32 +74,34 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       });
     }
 
-    // If already exists → prevent language changes
+    // Already started → refresh access time without changing the recorded outcome
     if (existing) {
-      if (existing.language_selected && existing.language_selected !== language) {
-        return ctx.badRequest("Language cannot be changed after starting the course.");
-      }
+      // Re-opening a course must not downgrade a Completed/Failed record; only fill missing values.
+      const startData = { last_accessed_at: now };
+      if (!existing.progress_status || existing.progress_status === "Not_started") startData.progress_status = "In_progress";
+      if (!existing.selected_language) startData.selected_language = language;
 
       try {
         if (existing.documentId) {
           await strapi.documents(uid).update({
             documentId: existing.documentId,
-            data: { progress_status: "In_progress", last_accessed_at: now },
+            data: startData,
             status: 'published',
           });
         } else {
           await strapi.db.query(uid).update({
             where: { id: existing.id },
-            data: { progress_status: "In_progress", last_accessed_at: now },
+            data: startData,
           });
         }
       } catch (e) {
         await strapi.db.query(uid).update({
           where: { id: existing.id },
-          data: { progress_status: "In_progress", last_accessed_at: now },
+          data: startData,
         });
       }
 
+      await syncOfflineEntries(strapi, numUserId, numCourseId, existing.selected_language || language);
       return ctx.send({
         message: "Course already started; progress updated.",
       });
@@ -144,7 +117,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
           progress_status: "In_progress",
           progress_percentage: 0,
           completed_modules: [],
-          language_selected: language,
+          selected_language: language,
           started_at: now,
           last_accessed_at: now,
           time_spent_minutes: 0,
@@ -161,7 +134,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
           progress_status: "In_progress",
           progress_percentage: 0,
           completed_modules: [],
-          language_selected: language,
+          selected_language: language,
           started_at: now,
           last_accessed_at: now,
           time_spent_minutes: 0,
@@ -170,6 +143,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       });
     }
 
+    await syncOfflineEntries(strapi, numUserId, numCourseId, language);
     return ctx.send({
       message: "Course started successfully",
       progress: entry,
@@ -177,8 +151,11 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
   },
 
   /**
-   * Mark module completed.
-   * Checks if all modules completed → then enforce QUIZ → FEEDBACK flow.
+   * Mark a module's content as completed.
+   *
+   * Enforces the module sequence: earlier modules (same language) must be completed first.
+   * Offline modules cannot be completed here — an assessor uploads completion proof instead.
+   * Online modules with a quiz are only completed once their quiz is passed.
    */
   async markModuleRead(ctx) {
     const b = ctx.request.body || {};
@@ -199,247 +176,92 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       return ctx.badRequest("Invalid courseId");
     }
 
-    // Fetch progress (try documents first - only published; fallback to draft for existing records)
-    let progress = null;
-    try {
-      let list = await strapi.documents(uid).findMany({
-        filters: { user: { id: numUserId }, course: { id: numCourseId } },
-        status: 'published',
-        limit: 1,
-      });
-      progress = Array.isArray(list) && list.length > 0 ? list[0] : null;
-      if (!progress) {
-        list = await strapi.documents(uid).findMany({
-          filters: { user: { id: numUserId }, course: { id: numCourseId } },
-          status: 'draft',
-          limit: 1,
-        });
-        progress = Array.isArray(list) && list.length > 0 ? list[0] : null;
-      }
-    } catch (e) {
-      strapi.log.warn('markModuleRead findMany failed, trying db.query:', e?.message);
-      progress = await strapi.db.query(uid).findOne({
-        where: { user: numUserId, course: numCourseId },
-      });
-    }
-
-    // Auto-create if missing — user may mark a module without going through start-course
-    if (!progress) {
-      // Fetch course first so we can compute percentage and nextStep
-      const course = await strapi.db.query("api::course.course").findOne({
-        where: { id: numCourseId },
-        populate: { modules: true, quiz: true, feedback: true },
-      });
-      const langModules = _filterModulesByLanguage(course?.modules, selectedLanguage);
-      const totalModules = langModules.length;
-      const completedArr = [String(moduleId)];
-      const pct = _calcModulePct(completedArr.length, totalModules);
-      // Completing all modules only unlocks assessment; course is completed after feedback submission.
-      const newStatus = completedArr.length > 0 ? 'In_progress' : 'Not_started';
-      try {
-        progress = await strapi.documents(uid).create(/** @type {any} */ ({
-          data: {
-            user: { connect: [{ id: numUserId }] },
-            course: { connect: [{ id: numCourseId }] },
-            progress_status: newStatus,
-            progress_percentage: pct,
-            completed_modules: completedArr,
-            started_at: startedAtFromReq || lastAccessedAt,
-            completed_at: null,
-            last_accessed_at: lastAccessedAt,
-            time_spent_minutes: deltaMinutes,
-            certificate_issued: false,
-            selected_language: selectedLanguage,
-          },
-          status: 'published',
-        }));
-      } catch (createErr) {
-        strapi.log.warn('markModuleRead documents create failed, trying db.query:', createErr?.message);
-        progress = await strapi.db.query(uid).create({
-          data: {
-            user: numUserId,
-            course: numCourseId,
-            progress_status: newStatus,
-            progress_percentage: pct,
-            completed_modules: completedArr,
-            started_at: startedAtFromReq || lastAccessedAt,
-            completed_at: null,
-            last_accessed_at: lastAccessedAt,
-            time_spent_minutes: deltaMinutes,
-            certificate_issued: false,
-            selected_language: selectedLanguage,
-          },
-        });
-      }
-      return ctx.send({
-        message: 'Module marked completed',
-        completed_modules: completedArr,
-        nextStep: _computeNextStep(completedArr.length, totalModules, course),
-        progress,
-      });
-    }
-
-    // Existing row — fetch course, compute updated values
-    const course = await strapi.db.query("api::course.course").findOne({
-      where: { id: numCourseId },
-      populate: { modules: true, quiz: true, feedback: true },
-    });
-
+    const course = await loadCourse(strapi, numCourseId);
     if (!course) {
-      return ctx.send({
-        message: "Module marked completed",
-        completed_modules: [String(moduleId)],
-        nextStep: "continue",
-      });
+      return ctx.badRequest("Invalid courseId");
     }
 
-    const effectiveLang = selectedLanguage ?? progress.selected_language ?? null;
-    const langModules = _filterModulesByLanguage(course.modules, effectiveLang);
-    const totalModules = langModules.length;
+    let progress = await loadProgress(strapi, numUserId, numCourseId);
 
-    // Dedupe and compute new state
-    const completedSet = new Set((progress.completed_modules || []).map(String));
-    completedSet.add(String(moduleId));
-    const completedArr2 = [...completedSet];
-    // Only count completed modules that belong to the current language's module list
-    const langModuleKeys2 = _buildModuleKeySet(langModules);
-    const completedInLangCount2 = _countCompletedInModuleSet(completedArr2, langModuleKeys2);
-    const pct2 = _calcModulePct(completedInLangCount2, totalModules);
+    const effectiveLang = selectedLanguage ?? progress?.selected_language ?? null;
+    const langModules = modulesForLanguage(course.modules, effectiveLang);
+    const module = findModule(langModules, moduleId) || findModule(course.modules, moduleId);
+    if (!module) {
+      return ctx.badRequest("Module not found in this course");
+    }
+    if (isOffline(module)) {
+      return ctx.badRequest(
+        "This is an offline module. It is completed when your assessor uploads your completion proof."
+      );
+    }
 
-    const newStatus2 = progress.progress_status === 'Completed'
-      ? 'Completed'
-      : (completedArr2.length > 0 ? 'In_progress' : 'Not_started');
-    const newTime = Math.max(0, Number(progress.time_spent_minutes || 0)) + deltaMinutes;
-    const completedAt = null;
-
-    const updateData = /** @type {any} */ ({
-      completed_modules: completedArr2,
-      progress_percentage: pct2,
-      progress_status: newStatus2,
-      started_at: progress.started_at || startedAtFromReq || lastAccessedAt,
-      completed_at: completedAt,
-      last_accessed_at: lastAccessedAt,
-      time_spent_minutes: newTime,
-      selected_language: selectedLanguage ?? progress.selected_language ?? null,
+    // Sequence check against the learner's current state.
+    const before = await computeModuleStates(strapi, {
+      course,
+      userId: numUserId,
+      progress: progress ? { ...progress, selected_language: effectiveLang } : { selected_language: effectiveLang },
     });
-
-    try {
-      if (progress.documentId) {
-        progress = await strapi.documents(uid).update(/** @type {any} */ ({
-          documentId: progress.documentId,
-          data: updateData,
-          status: 'published',
-        }));
-      } else {
-        progress = await strapi.db.query(uid).update({
-          where: { id: progress.id },
-          data: updateData,
-        });
-      }
-    } catch (updateErr) {
-      strapi.log.warn('markModuleRead update failed:', updateErr?.message);
-      progress = await strapi.db.query(uid).update({
-        where: { id: progress.id },
-        data: updateData,
-      });
+    const state = before.modules.find((s) => s.module_id === module.module_id);
+    if (state && !state.unlocked) {
+      return ctx.forbidden("Complete the previous modules first.");
     }
+
+    const moduleKey = String(module.module_id ?? module.id);
+
+    if (!progress) {
+      // Auto-create if missing — user may mark a module without going through start-course
+      await strapi.documents(uid).create(/** @type {any} */ ({
+        data: {
+          user: { connect: [{ id: numUserId }] },
+          course: { connect: [{ id: numCourseId }] },
+          progress_status: "In_progress",
+          progress_percentage: 0,
+          completed_modules: [moduleKey],
+          started_at: startedAtFromReq || lastAccessedAt,
+          completed_at: null,
+          last_accessed_at: lastAccessedAt,
+          time_spent_minutes: deltaMinutes,
+          certificate_issued: false,
+          selected_language: effectiveLang,
+        },
+        status: 'published',
+      }));
+      progress = await loadProgress(strapi, numUserId, numCourseId);
+    } else {
+      const completedSet = new Set((progress.completed_modules || []).map(String));
+      completedSet.add(moduleKey);
+      const data = {
+        completed_modules: [...completedSet],
+        started_at: progress.started_at || startedAtFromReq || lastAccessedAt,
+        last_accessed_at: lastAccessedAt,
+        time_spent_minutes: Math.max(0, Number(progress.time_spent_minutes || 0)) + deltaMinutes,
+        selected_language: effectiveLang,
+      };
+      await updateProgressRows(strapi, progress, data);
+      progress = { ...progress, ...data };
+    }
+
+    const summary = await recomputeProgress(strapi, { userId: numUserId, courseId: numCourseId, progress, course });
+    const fresh = await strapi.db.query(uid).findOne({ where: { id: progress.id } });
 
     return ctx.send({
       message: "Module marked completed",
-      completed_modules: completedArr2,
-      nextStep: _computeNextStep(completedInLangCount2, totalModules, course),
-      progress,
+      completed_modules: fresh?.completed_modules ?? progress.completed_modules,
+      nextStep: summary?.nextStep ?? "continue",
+      module_states: summary?.modules ?? [],
+      progress: fresh ?? progress,
     });
   },
 
   /**
-   * Called by quiz-submission controller when quiz is passed/failed.
-   * If quiz compulsory and failed → progress = Failed
+   * Called after a quiz submission. Module completion and course status are re-derived
+   * from the learner's submissions (see utils/course-modules).
    */
-  async updateAfterQuiz(courseId, userId, passed) {
-    const uid = "api::user-progress.user-progress";
+  async updateAfterQuiz(courseId, userId) {
     const numUserId = Number(userId);
     const numCourseId = await resolveCourseId(strapi, courseId);
     if (numCourseId == null || Number.isNaN(numUserId)) return;
-
-    let progress = null;
-    try {
-      let list = await strapi.documents(uid).findMany({
-        filters: { user: { id: numUserId }, course: { id: numCourseId } },
-        status: 'published',
-        limit: 1,
-      });
-      progress = Array.isArray(list) && list.length > 0 ? list[0] : null;
-      if (!progress) {
-        list = await strapi.documents(uid).findMany({
-          filters: { user: { id: numUserId }, course: { id: numCourseId } },
-          status: 'draft',
-          limit: 1,
-        });
-        progress = Array.isArray(list) && list.length > 0 ? list[0] : null;
-      }
-    } catch (e) {
-      strapi.log.warn('updateAfterQuiz documents lookup failed, trying db.query:', e?.message);
-      progress = await strapi.db.query(uid).findOne({
-        where: { user: numUserId, course: numCourseId },
-      });
-    }
-
-    if (!progress) return;
-
-    const now = new Date();
-
-    // Fetch course to determine feedback compulsory flag
-    const course = await strapi.db.query('api::course.course').findOne({
-      where: { id: numCourseId },
-      populate: { modules: true, feedback: true },
-    });
-    const effectiveLang = progress.selected_language ?? null;
-    const langModules = _filterModulesByLanguage(course?.modules, effectiveLang);
-    const totalModules = langModules.length;
-    const completedModules = Array.isArray(progress.completed_modules) ? progress.completed_modules : [];
-    // Only count completed modules that belong to the current language's module list
-    const langModuleKeys = _buildModuleKeySet(langModules);
-    const completedInLang = completedModules.filter((id) => langModuleKeys.has(String(id)));
-    const modulePct = _calcModulePct(completedInLang.length, totalModules);
-    // Quiz = 10% always; feedback has no weight → passing quiz completes the course
-    const quizPct = 10;
-
-    /** @type {any} */
-    let updateData;
-    if (passed === true) {
-      // Quiz passed → course complete at modulePct + 10%
-      updateData = {
-        progress_status: 'Completed',
-        progress_percentage: modulePct + quizPct,
-        completed_at: now,
-        last_accessed_at: now,
-        certificate_issued: true,
-      };
-    } else {
-      // Failed: keep module percentage only
-      updateData = {
-        progress_status: 'Failed',
-        progress_percentage: modulePct,
-        completed_at: null,
-        last_accessed_at: now,
-      };
-    }
-
-    try {
-      if (progress.documentId) {
-        await strapi.documents(uid).update(/** @type {any} */ ({
-          documentId: progress.documentId,
-          data: updateData,
-          status: 'published',
-        }));
-      } else {
-        await strapi.db.query(uid).update({ where: { id: progress.id }, data: updateData });
-      }
-    } catch (e) {
-      strapi.log.warn('updateAfterQuiz documents update failed, trying db.query:', e?.message);
-      await strapi.db.query(uid).update({ where: { id: progress.id }, data: updateData });
-    }
+    await recomputeProgress(strapi, { userId: numUserId, courseId: numCourseId });
   },
 
   /**
@@ -529,8 +351,31 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
         where: { user: numUserId, course: numCourseId },
       });
     }
+    // Per-module state (type, unlocked, completed, quiz attempts, offline proof) for the learner's language.
+    const moduleStateFor = async (progressRow) => {
+      try {
+        const course = await loadCourse(strapi, numCourseId);
+        if (!course) return { module_states: [], next_step: 'continue', current_module_id: null };
+        const language = progressRow?.selected_language || ctx.query.language || null;
+        const summary = await computeModuleStates(strapi, {
+          course,
+          userId: numUserId,
+          progress: { ...(progressRow || {}), selected_language: language },
+        });
+        return {
+          module_states: summary.modules,
+          next_step: nextStepFor(summary, course),
+          current_module_id: summary.currentModule?.module_id ?? null,
+        };
+      } catch (e) {
+        strapi.log.warn('getProgress: module state computation failed:', e?.message);
+        return { module_states: [], next_step: 'continue', current_module_id: null };
+      }
+    };
+
     if (!progress) {
       return ctx.send({
+        ...(await moduleStateFor(null)),
         progress_status: 'Not_started',
         progress_percentage: 0,
         completed_modules: [],
@@ -603,6 +448,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       user: full.user ?? null,
       quiz_submission: full.quiz_submission ?? null,
       feedback_submission: full.feedback_submission ?? null,
+      ...(await moduleStateFor(full)),
     });
   },
 

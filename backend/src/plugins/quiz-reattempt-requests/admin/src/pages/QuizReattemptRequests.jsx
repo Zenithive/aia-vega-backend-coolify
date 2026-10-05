@@ -121,7 +121,9 @@ export default function QuizReattemptRequestsPage() {
       : 'Not reviewed';
     const statusRaw = attrs.request_status ?? entry.request_status ?? 'Pending';
     const statusVal = typeof statusRaw === 'string' ? statusRaw : 'Pending';
-    return { userName, courseTitle, courseVersion, statusVal, attrs, approvedByName };
+    // Quizzes belong to modules; older requests have no module.
+    const moduleTitle = attrs.module_title || '—';
+    return { userName, courseTitle, courseVersion, moduleTitle, statusVal, attrs, approvedByName };
   };
 
   const filteredList = useMemo(() => {
@@ -302,6 +304,7 @@ export default function QuizReattemptRequestsPage() {
                       }
                     },
                     { key: 'courseTitle', label: 'Course', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).courseTitle}</Typography> },
+                    { key: 'moduleTitle', label: 'Module', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).moduleTitle}</Typography> },
                     { key: 'courseVersion', label: 'Version', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).courseVersion}</Typography> },
                     { key: 'requested_for_attempt', label: 'Requested attempt', render: (val, row) => <Typography variant="omega" style={TABLE_FONT_STYLE}>{getDisplayValues(row).attrs.requested_for_attempt ?? '—'}</Typography> },
                     { key: 'statusVal', label: 'Status', render: (val, row) => {

@@ -1,0 +1,55 @@
+{
+  "kind": "collectionType",
+  "collectionName": "offline_module_completions",
+  "info": {
+    "singularName": "offline-module-completion",
+    "pluralName": "offline-module-completions",
+    "displayName": "Offline Module Completion",
+    "description": "One entry per assigned learner and offline course module, created on course assignment. Attaching proof marks the module completed for that learner."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "user": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user"
+    },
+    "course": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::course.course"
+    },
+    "module_id": {
+      "type": "string",
+      "required": true
+    },
+    "module_title": {
+      "type": "string"
+    },
+    "proof": {
+      "type": "media",
+      "multiple": true,
+      "allowedTypes": [
+        "images",
+        "files",
+        "videos",
+        "audios"
+      ]
+    },
+    "remarks": {
+      "type": "text"
+    },
+    "completed_at": {
+      "type": "datetime"
+    },
+    "assessed_by": {
+      "type": "string"
+    },
+    "course_version": {
+      "type": "string"
+    }
+  }
+}
