@@ -17,7 +17,7 @@ import { Box, Flex, Typography, Button, Grid, TextButton, Divider } from '@strap
 import { ArrowLeft, ArrowRight, Check, CheckCircle, WarningCircle } from '@strapi/icons';
 import { api } from '../../api';
 import { BASE_PATH, COURSE_UID } from '../../pluginId';
-import { useCoursePermissions } from '../../utils/usePermissions';
+import { useCoursePermissions, useAssignmentPermissions } from '../../utils/usePermissions';
 import {
   STEPS,
   toForm,
@@ -39,6 +39,7 @@ import BasicsStep from './BasicsStep.jsx';
 import ModulesStep from './ModulesStep.jsx';
 import FeedbackStep from './FeedbackStep.jsx';
 import ReviewStep from './ReviewStep.jsx';
+import PublishDialog from './PublishDialog.jsx';
 
 const snapshot = (form) => (form ? JSON.stringify(toPayload(form)) : '');
 
@@ -115,6 +116,7 @@ export default function CourseEditor() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { toggleNotification } = useNotification();
   const perms = useCoursePermissions();
+  const assignmentPerms = useAssignmentPermissions();
 
   const [options, setOptions] = useState(null);
   const [form, setForm] = useState(null);
@@ -330,17 +332,31 @@ export default function CourseEditor() {
     setConfirmPublish(true);
   };
 
-  const publish = async () => {
+  /** autoAssign: { sourceDocumentId, dueDate } to also assign this version to an earlier version's learners. */
+  const publish = async (autoAssign = null) => {
     if (dirty) {
       const saved = await save({ silent: true });
       if (!saved) return;
     }
     setBusy('publish');
     try {
-      const res = await api.publish(documentId);
+      const res = await api.publish(documentId, autoAssign ? { autoAssign } : {});
       applyResponse(res, options);
       setConfirmPublish(false);
-      toggleNotification({ type: 'success', message: 'Course published. Assigned learners can now access it.' });
+      const result = res.autoAssign;
+      if (!result) {
+        toggleNotification({ type: 'success', message: 'Course published. Assigned learners can now access it.' });
+      } else {
+        const notes = [
+          ...(result.skipped || []).map((s) => `${s.count} skipped (${s.reason})`),
+          ...(result.errors || []),
+          ...(result.error ? [result.error] : []),
+        ];
+        toggleNotification({
+          type: notes.length ? 'warning' : 'success',
+          message: `Course published and assigned to ${result.assigned} learner${result.assigned === 1 ? '' : 's'}.${notes.length ? ` ${notes.join(' · ')}` : ''}`,
+        });
+      }
     } catch (e) {
       handleServerError(e, toPayload(form));
     } finally {
@@ -485,18 +501,14 @@ export default function CourseEditor() {
           `The ${pendingLanguages.removed.join(' and ')} version of the modules, quiz and feedback will be removed when you save.`}
       </ConfirmDialog>
 
-      <ConfirmDialog
+      <PublishDialog
         open={confirmPublish}
-        title="Publish this course?"
-        confirmLabel="Yes, publish"
-        variant="default"
-        loading={busy === 'publish' || busy === 'save'}
+        documentId={documentId}
+        canAutoAssign={!!assignmentPerms.canAssign}
+        publishing={busy === 'publish' || busy === 'save'}
+        onPublish={publish}
         onClose={() => setConfirmPublish(false)}
-        onConfirm={publish}
-      >
-        Once published, this course is locked and can no longer be edited or unpublished. Check the content, quizzes
-        and feedback now. To change it later, use "Create new version" in the course list.
-      </ConfirmDialog>
+      />
 
       <ConfirmDialog
         open={blocker.state === 'blocked'}

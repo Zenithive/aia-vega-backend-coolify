@@ -72,6 +72,8 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
     const isEligibleForSelectedCompany = (user, selected) => {
       const company = resolveUserCompany(user);
       if (company !== selected) return false;
+      // Blocked accounts cannot sign in, so they are never assigned.
+      if (user?.blocked === true) return false;
 
       if (selected === 'Vega') {
         // Vega eligibility: active users only
@@ -88,6 +90,7 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
     };
 
     const getIneligibleReason = (user, selected) => {
+      if (user?.blocked === true) return 'blocked';
       if (selected === 'Vega' && user?.active === false) return 'inactive';
       if (selected === 'AIA') {
         const exitDate = user?.exit_date;
@@ -154,6 +157,8 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
 
     const isHeaderLikeIdentifier = (value) => knownHeaderTokens.has(normalizeHeaderToken(value));
 
+    // Rows that repeat an identifier already in the file (reported, not imported twice).
+    let duplicateRows = 0;
     const finalizeIdentifiers = (rawList) => {
       const out = [];
       const seen = new Set();
@@ -161,7 +166,10 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
         const value = String(item || '').replace(/^\uFEFF/, '').trim();
         if (!value) continue;
         if (isHeaderLikeIdentifier(value)) continue;
-        if (seen.has(value)) continue;
+        if (seen.has(value)) {
+          duplicateRows += 1;
+          continue;
+        }
         seen.add(value);
         out.push(value);
       }
@@ -228,7 +236,7 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
 
     const users = await strapi.db.query('plugin::users-permissions.user').findMany({
       where: scopedWhere,
-      select: ['id', 'documentId', 'email', 'username', 'emp_code', 'emp_id', 'company', 'active', 'exit_date'],
+      select: ['id', 'documentId', 'email', 'username', 'emp_code', 'emp_id', 'company', 'active', 'exit_date', 'blocked'],
       limit: 2000,
     });
 
@@ -282,7 +290,32 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
       // Company-scoped DB query prevents other-company records from entering candidates.
     }
 
-    const notFound = identifiers.filter((id) => !matched.has(id));
+    const unmatched = identifiers.filter((id) => !matched.has(id));
+
+    // Unmatched identifiers that do belong to an employee of the other company.
+    const otherCompany = [];
+    if (unmatched.length > 0) {
+      const unmatchedSet = new Set(unmatched);
+      const otherOr = orClauses.map((clause) => {
+        const [field] = Object.keys(clause);
+        return { [field]: { $in: unmatched } };
+      });
+      const others = await strapi.db.query('plugin::users-permissions.user').findMany({
+        where: { $and: [otherOr.length === 1 ? otherOr[0] : { $or: otherOr }, { company: { $ne: selectedCompany } }] },
+        select: ['id', 'email', 'username', 'emp_code', 'emp_id', 'company'],
+        limit: 2000,
+      });
+      const seenOther = new Set();
+      for (const user of others || []) {
+        for (const identifier of getMatchedIdentifiersForUser(user, unmatchedSet)) {
+          if (seenOther.has(identifier)) continue;
+          seenOther.add(identifier);
+          otherCompany.push({ identifier, company: user.company || null, username: user.username || null });
+        }
+      }
+    }
+    const otherCompanyIds = new Set(otherCompany.map((o) => o.identifier));
+    const notFound = unmatched.filter((id) => !otherCompanyIds.has(id));
 
     return ctx.send({
       found: (selectedUsers || []).map((u) => ({
@@ -293,6 +326,9 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
       })),
       notFound,
       skippedInactiveOrExited,
+      otherCompany,
+      duplicateRows,
+      totalRows: identifiers.length + duplicateRows,
     });
   },
 

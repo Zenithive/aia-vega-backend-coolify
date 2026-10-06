@@ -24,6 +24,7 @@ module.exports = {
       route('DELETE', '/courses/:documentId', 'course.delete'),
       route('POST', '/courses/:documentId/duplicate', 'course.duplicate'),
       route('POST', '/courses/:documentId/publish', 'course.publish'),
+      route('GET', '/courses/:documentId/auto-assign-sources', 'course.autoAssignSources'),
       route('POST', '/courses/:documentId/unpublish', 'course.unpublish'),
 
       route('GET', '/assignment-options', 'assignment.options'),

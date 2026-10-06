@@ -11,6 +11,7 @@
  */
 
 const COURSE_UID = 'api::course.course';
+const ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
 const CM = 'plugin::content-manager.explorer';
 
 const ACTIONS = {
@@ -90,8 +91,19 @@ module.exports = {
     );
   },
 
+  async autoAssignSources(ctx) {
+    return guarded(ctx, 'read', () => service().autoAssignSources(ctx.params.documentId));
+  },
+
+  /** Body { autoAssign?: { sourceDocumentId, dueDate } }; auto-assigning also needs the assignment permissions. */
   async publish(ctx) {
-    return guarded(ctx, 'publish', () => service().publish(ctx.params.documentId));
+    const autoAssign = ctx.request.body?.autoAssign || null;
+    if (autoAssign) {
+      const ability = ctx.state?.userAbility;
+      const canAssign = ['create', 'publish'].every((a) => ability?.can(`${CM}.${a}`, ASSIGNMENT_UID));
+      if (!canAssign) return ctx.forbidden('You do not have permission to assign courses.');
+    }
+    return guarded(ctx, 'publish', () => service().publish(ctx.params.documentId, { autoAssign }));
   },
 
   async unpublish(ctx) {

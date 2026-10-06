@@ -435,6 +435,61 @@ module.exports = ({ strapi }) => {
       return this.get(documentId);
     },
 
+    /**
+     * Assigns one course to a list of users with one due date (auto-assign of a new version).
+     * An assignment belongs to one company, so users are grouped by company and one published
+     * Individual assignment is created per company — the normal automation then creates their
+     * progress and sends "Course Assigned". Users who left / are inactive, or whose company has
+     * no Company record, are skipped and counted.
+     */
+    async assignUsersToCourse({ courseDocumentId, userIds, dueDate }) {
+      const ids = [...new Set((userIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+      const result = { assigned: 0, skipped: [], errors: [] };
+      if (!ids.length) return result;
+
+      const [users, companies] = await Promise.all([
+        strapi.db.query(USER_UID).findMany({ where: { id: { $in: ids } }, select: ['id', 'company', 'exit_date', 'active'] }),
+        strapi.documents(COMPANY_UID).findMany({ status: 'published', fields: ['name'], sort: 'name:asc' }),
+      ]);
+      const companyByValue = new Map();
+      (companies || []).forEach((c) => {
+        const value = userCompanyValue(c.name);
+        if (value && !companyByValue.has(value)) companyByValue.set(value, c);
+      });
+
+      const groups = new Map();
+      let inactive = 0;
+      let noCompany = 0;
+      for (const u of users || []) {
+        const company = companyByValue.get(u.company);
+        if (!company) noCompany += 1;
+        else if ((u.company === 'AIA' && u.exit_date) || (u.company === 'Vega' && u.active === false)) inactive += 1;
+        else {
+          if (!groups.has(company.documentId)) groups.set(company.documentId, { company, userIds: [] });
+          groups.get(company.documentId).userIds.push(u.id);
+        }
+      }
+      if (inactive) result.skipped.push({ reason: 'have left or are inactive', count: inactive });
+      if (noCompany) result.skipped.push({ reason: 'have no matching company', count: noCompany });
+
+      for (const { company, userIds: list } of groups.values()) {
+        try {
+          await this.create({
+            companyDocumentId: company.documentId,
+            courseDocumentIds: [courseDocumentId],
+            targetType: 'Individual',
+            userIds: list,
+            dueDate,
+          });
+          result.assigned += list.length;
+        } catch (err) {
+          const detail = Object.values(err?.details?.errors || {}).join(' ');
+          result.errors.push(`${company.name}: ${detail || err?.message || 'could not be assigned'}`);
+        }
+      }
+      return result;
+    },
+
     /** Employees of the company matching a name, email or employee code / ID. */
     async searchUsers({ companyDocumentId, q }) {
       const company = userCompanyValue((await findCompany(str(companyDocumentId)))?.name);
@@ -445,6 +500,8 @@ module.exports = ({ strapi }) => {
           $and: [
             { company },
             eligibilityFilter(company),
+            // Blocked accounts cannot sign in (NULL counts as not blocked).
+            { $or: [{ blocked: false }, { blocked: { $null: true } }] },
             {
               $or: ['username', 'email', 'emp_code', 'emp_id'].map((field) => ({ [field]: { $containsi: term } })),
             },

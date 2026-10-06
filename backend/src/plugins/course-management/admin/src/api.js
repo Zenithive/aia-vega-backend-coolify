@@ -36,7 +36,10 @@ export const api = {
   update: (documentId, data) => call('put', `${base}/courses/${documentId}`, { data }),
   remove: (documentId) => call('del', `${base}/courses/${documentId}`),
   duplicate: (documentId, body) => call('post', `${base}/courses/${documentId}/duplicate`, body),
-  publish: (documentId) => call('post', `${base}/courses/${documentId}/publish`, {}),
+  /** body: { autoAssign?: { sourceDocumentId, dueDate } } */
+  publish: (documentId, body = {}) => call('post', `${base}/courses/${documentId}/publish`, body),
+  /** Earlier published versions with learners: [{ documentId, title, course_version, learnerCount }]. */
+  autoAssignSources: (documentId) => call('get', `${base}/courses/${documentId}/auto-assign-sources`),
 
   assignmentOptions: () => call('get', `${base}/assignment-options`),
   assignableCourses: (companyDocumentId) =>

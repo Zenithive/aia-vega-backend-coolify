@@ -21,6 +21,8 @@ import {
   IconButton,
   Loader,
   Searchbar,
+  SingleSelect,
+  SingleSelectOption,
   Table,
   Tbody,
   Td,
@@ -29,8 +31,10 @@ import {
   Thead,
   Tr,
   Typography,
+  MultiSelect,        
+  MultiSelectOption,
 } from '@strapi/design-system';
-import { ArrowLeft, Check, Plus, Trash, Upload, User, PinMap, Briefcase, Pencil } from '@strapi/icons';
+import { ArrowLeft, Check, Cross, File as FileIcon, Plus, Trash, Upload, User, PinMap, Briefcase, Pencil } from '@strapi/icons';
 import { api, importEmployees } from '../../api';
 import { BASE_PATH } from '../../pluginId';
 import { useAssignmentPermissions } from '../../utils/usePermissions';
@@ -279,6 +283,126 @@ function LearnerDueDateDialog({ target, assignmentId, onClose, onSaved }) {
   );
 }
 
+const SKIP_REASONS = {
+  inactive: 'Inactive',
+  exited: 'Left the company',
+  blocked: 'Blocked account',
+  ineligible: 'Not eligible',
+};
+
+/**
+ * Breaks an Excel / CSV import down for the admin. `res` is the import response, `full` the
+ * found users, `beforeIds` who was in the list before the upload, `assignedIds` who is saved on
+ * this assignment. addedIds = users this file put into the list (removed again with the file).
+ */
+function summarizeImport(res, full, beforeIds, assignedIds) {
+  const addedIds = full.map((u) => u.id).filter((id) => !beforeIds.has(id));
+  const skipped = Array.isArray(res.skippedInactiveOrExited) ? res.skippedInactiveOrExited : [];
+  const label = (x) => (x.username && x.username !== x.identifier ? `${x.identifier} (${x.username})` : x.identifier);
+  const byReason = (reason) => skipped.filter((x) => (SKIP_REASONS[x.reason] ? x.reason : 'ineligible') === reason).map(label);
+  return {
+    addedIds,
+    totalRows: res.totalRows ?? null,
+    groups: [
+      { key: 'added', label: 'Added', tone: 'success', items: full.filter((u) => addedIds.includes(u.id) && !assignedIds.has(u.id)).map(employeeLabel) },
+      { key: 'assigned', label: 'Already assigned', tone: 'neutral', items: full.filter((u) => assignedIds.has(u.id)).map(employeeLabel) },
+      { key: 'inList', label: 'Already in the list', tone: 'neutral', items: full.filter((u) => beforeIds.has(u.id) && !assignedIds.has(u.id)).map(employeeLabel) },
+      ...Object.entries(SKIP_REASONS).map(([reason, text]) => ({ key: reason, label: text, tone: 'warning', items: byReason(reason) })),
+      {
+        key: 'otherCompany',
+        label: 'Other company',
+        tone: 'warning',
+        items: (res.otherCompany || []).map((x) => `${x.identifier}${x.company ? ` (${x.company})` : ''}`),
+      },
+      { key: 'notFound', label: 'Not found', tone: 'danger', items: res.notFound || [] },
+      { key: 'duplicates', label: 'Duplicate rows', tone: 'neutral', items: [], count: res.duplicateRows || 0 },
+    ].map((g) => ({ ...g, count: g.count ?? g.items.length })),
+  };
+}
+
+const TONE_COLORS = {
+  success: { background: 'success100', text: 'success700', border: 'success200' },
+  warning: { background: 'warning100', text: 'warning700', border: 'warning200' },
+  danger: { background: 'danger100', text: 'danger700', border: 'danger200' },
+  neutral: { background: 'neutral100', text: 'neutral700', border: 'neutral200' },
+};
+
+/** One uploaded file: name with a remove (×) button, and a count per outcome with the rows behind it. */
+function UploadSummary({ upload, onRemove, disabled }) {
+  const [open, setOpen] = useState(null);
+  const shown = upload.groups.filter((g) => g.count > 0 || g.key === 'added');
+  const problems = upload.groups.filter((g) => g.tone === 'warning' || g.tone === 'danger').reduce((n, g) => n + g.count, 0);
+  const openGroup = shown.find((g) => g.key === open && g.items.length);
+
+  return (
+    <Box hasRadius borderColor={problems ? 'warning200' : 'neutral200'} borderStyle="solid" borderWidth="1px" padding={4}>
+      <Flex justifyContent="space-between" alignItems="center" gap={3}>
+        <Flex gap={2} alignItems="center" style={{ minWidth: 0 }}>
+          <FileIcon />
+          <Typography fontWeight="bold" ellipsis>{upload.fileName}</Typography>
+          {upload.totalRows != null && (
+            <Typography variant="pi" textColor="neutral600" style={{ flexShrink: 0 }}>
+              {`${upload.totalRows} row${upload.totalRows === 1 ? '' : 's'}`}
+            </Typography>
+          )}
+        </Flex>
+        {!disabled && (
+          <IconButton
+            label={`Remove ${upload.fileName} and the ${upload.addedIds.length} employee${upload.addedIds.length === 1 ? '' : 's'} it added`}
+            variant="ghost"
+            onClick={onRemove}
+          >
+            <Cross />
+          </IconButton>
+        )}
+      </Flex>
+      <Flex gap={2} wrap="wrap" marginTop={3}>
+        {shown.map((g) => {
+          const colors = TONE_COLORS[g.tone];
+          const clickable = g.items.length > 0;
+          return (
+            <Box
+              key={g.key}
+              tag={clickable ? 'button' : 'div'}
+              type={clickable ? 'button' : undefined}
+              onClick={clickable ? () => setOpen((o) => (o === g.key ? null : g.key)) : undefined}
+              paddingTop={1}
+              paddingBottom={1}
+              paddingLeft={3}
+              paddingRight={3}
+              hasRadius
+              background={colors.background}
+              borderColor={open === g.key ? colors.text : colors.border}
+              borderStyle="solid"
+              borderWidth="1px"
+              style={{ cursor: clickable ? 'pointer' : 'default' }}
+            >
+              <Typography variant="pi" fontWeight="bold" textColor={colors.text}>
+                {`${g.label}: ${g.count}`}
+              </Typography>
+            </Box>
+          );
+        })}
+      </Flex>
+      {openGroup && (
+        <Box marginTop={3} padding={3} hasRadius background="neutral100" style={{ maxHeight: 160, overflowY: 'auto' }}>
+          <Typography variant="pi" fontWeight="bold" textColor="neutral700" tag="p">
+            {`${openGroup.label} (${openGroup.count})`}
+          </Typography>
+          <Typography variant="pi" textColor="neutral700" tag="p" marginTop={1}>
+            {openGroup.items.join(', ')}
+          </Typography>
+        </Box>
+      )}
+      {problems > 0 && !openGroup && (
+        <Typography variant="pi" textColor="neutral600" tag="p" marginTop={2}>
+          Click a count to see the rows behind it.
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 /** Pick employees by Excel / CSV upload or by searching, and review the list. */
 function EmployeePicker({
   companyDocumentId,
@@ -294,7 +418,12 @@ function EmployeePicker({
   const { toggleNotification } = useNotification();
   const fileRef = useRef(null);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState(null);
+  // One entry per uploaded file: { key, fileName, addedIds, stats } (see summarizeImport).
+  const [uploads, setUploads] = useState([]);
+  const [tableQuery, setTableQuery] = useState('');
+  const [tableFilter, setTableFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -307,6 +436,22 @@ function EmployeePicker({
   );
   const newCount = users.filter((u) => !assignedIds.has(u.id)).length;
   const assignedCount = users.length - newCount;
+
+  // Table: search + New / Already assigned filter + pagination.
+  const tableRows = useMemo(() => {
+    const term = tableQuery.trim().toLowerCase();
+    return sortedUsers
+      .filter((u) => tableFilter === 'all' || (tableFilter === 'new') === !assignedIds.has(u.id))
+      .filter(
+        (u) =>
+          !term ||
+          [employeeLabel(u), u.email, employeeCode(u), u.department].some((v) => String(v || '').toLowerCase().includes(term))
+      );
+  }, [sortedUsers, tableQuery, tableFilter, assignedIds]);
+  const pageCount = Math.max(1, Math.ceil(tableRows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = tableRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => setPage(1), [tableQuery, tableFilter, pageSize]);
 
   useEffect(() => {
     const term = q.trim();
@@ -340,7 +485,6 @@ function EmployeePicker({
     e.target.value = '';
     if (!file) return;
     setImporting(true);
-    setImportResult(null);
     try {
       const isCsv = /\.csv$/i.test(file.name) || file.type === 'text/csv' || file.type === 'text/plain';
       const payload = { companyDocumentId };
@@ -354,15 +498,9 @@ function EmployeePicker({
       const res = await importEmployees(payload);
       const found = Array.isArray(res.found) ? res.found : [];
       const full = found.length ? (await api.usersByIds(found.map((u) => u.id))).data || found : [];
-      const before = users.length;
+      const summary = summarizeImport(res, full, new Set(users.map((u) => u.id)), assignedIds);
       add(full);
-      setImportResult({
-        fileName: file.name,
-        added: new Set([...users.map((u) => u.id), ...full.map((u) => u.id)]).size - before,
-        found: found.length,
-        notFound: res.notFound || [],
-        skipped: res.skippedInactiveOrExited || [],
-      });
+      setUploads((list) => [{ key: `${Date.now()}`, fileName: file.name, ...summary }, ...list]);
     } catch (err) {
       toggleNotification({ type: 'danger', message: err.message });
     } finally {
@@ -427,18 +565,18 @@ function EmployeePicker({
         </Flex>
       )}
 
-      {importResult && (
-        <Callout variant={importResult.notFound.length || importResult.skipped.length ? 'warning' : 'success'} title={`"${importResult.fileName}": ${importResult.added} employee${importResult.added === 1 ? '' : 's'} added`}>
-          {[
-            importResult.found > importResult.added && `${importResult.found - importResult.added} were already in the list.`,
-            importResult.notFound.length &&
-              `Not found (${importResult.notFound.length}): ${importResult.notFound.slice(0, 10).join(', ')}${importResult.notFound.length > 10 ? '…' : ''}.`,
-            importResult.skipped.length && `${importResult.skipped.length} skipped because they are inactive or have left.`,
-          ]
-            .filter(Boolean)
-            .join(' ') || 'Everyone in the file was found.'}
-        </Callout>
-      )}
+      {uploads.map((upload) => (
+        <UploadSummary
+          key={upload.key}
+          upload={upload}
+          disabled={disabled}
+          onRemove={() => {
+            const remove = new Set(upload.addedIds);
+            onChange(users.filter((u) => !remove.has(u.id)));
+            setUploads((list) => list.filter((x) => x.key !== upload.key));
+          }}
+        />
+      ))}
 
       <Box>
         <Flex justifyContent="space-between" alignItems="center" marginBottom={2} gap={3} wrap="wrap">
@@ -449,13 +587,42 @@ function EmployeePicker({
           </Flex>
           {!disabled && users.length > 0 && <TextButton onClick={() => onChange([])}>Remove all</TextButton>}
         </Flex>
+        {users.length > 10 && (
+          <Flex gap={3} wrap="wrap" alignItems="flex-end" marginBottom={3}>
+            <Box style={{ flex: '2 1 260px' }}>
+              <Searchbar
+                name="selected-employee-search"
+                value={tableQuery}
+                onChange={(e) => setTableQuery(e.target.value)}
+                onClear={() => setTableQuery('')}
+                clearLabel="Clear"
+                placeholder="Find in the selected employees: name, email, code or department"
+              >
+                Find selected employee
+              </Searchbar>
+            </Box>
+            {newCount > 0 && assignedCount > 0 && (
+              <Box style={{ flex: '0 1 220px' }}>
+                <SingleSelect aria-label="Show" size="S" value={tableFilter} onChange={(v) => setTableFilter(String(v))}>
+                  <SingleSelectOption value="all">{`All (${users.length})`}</SingleSelectOption>
+                  <SingleSelectOption value="new">{`New (${newCount})`}</SingleSelectOption>
+                  <SingleSelectOption value="assigned">{`Already assigned (${assignedCount})`}</SingleSelectOption>
+                </SingleSelect>
+              </Box>
+            )}
+          </Flex>
+        )}
         {users.length === 0 ? (
           <Box padding={4} hasRadius background="neutral100">
             <Typography textColor="neutral600">No employees yet. Upload a list or search above.</Typography>
           </Box>
+        ) : tableRows.length === 0 ? (
+          <Box padding={4} hasRadius background="neutral100">
+            <Typography textColor="neutral600">No selected employee matches your search.</Typography>
+          </Box>
         ) : (
-          <Box style={{ maxHeight: 420, overflowY: 'auto' }}>
-            <Table colCount={6} rowCount={users.length + 1}>
+          <Box>
+            <Table colCount={6} rowCount={pageRows.length + 1}>
               <Thead>
                 <Tr>
                   <Th><Typography variant="sigma">Employee</Typography></Th>
@@ -467,7 +634,7 @@ function EmployeePicker({
                 </Tr>
               </Thead>
               <Tbody>
-                {sortedUsers.map((u) => {
+                {pageRows.map((u) => {
                   const isNewUser = !assignedIds.has(u.id);
                   const entryFor = (c) => progressByKey.get(`${u.id}:${c.value}`);
                   return (
@@ -547,6 +714,27 @@ function EmployeePicker({
                 })}
               </Tbody>
             </Table>
+            <Flex justifyContent="space-between" alignItems="center" marginTop={3} gap={3} wrap="wrap">
+              <Typography variant="pi" textColor="neutral600">
+                {`Showing ${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, tableRows.length)} of ${tableRows.length}`}
+              </Typography>
+              <Flex gap={2} alignItems="center">
+                <Box style={{ width: 120 }}>
+                  <SingleSelect aria-label="Rows per page" size="S" value={String(pageSize)} onChange={(v) => setPageSize(Number(v))}>
+                    {[10, 25, 50, 100].map((n) => (
+                      <SingleSelectOption key={n} value={String(n)}>{`${n} per page`}</SingleSelectOption>
+                    ))}
+                  </SingleSelect>
+                </Box>
+                <Button variant="tertiary" size="S" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
+                  Previous
+                </Button>
+                <Typography variant="pi">{`Page ${currentPage} of ${pageCount}`}</Typography>
+                <Button variant="tertiary" size="S" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>
+                  Next
+                </Button>
+              </Flex>
+            </Flex>
           </Box>
         )}
       </Box>
@@ -777,15 +965,29 @@ export default function AssignmentEditor() {
             <Typography textColor="neutral600">Choose the company first.</Typography>
           ) : courses === null ? (
             <Loader small>Loading courses…</Loader>
+          ) : courseItems.length === 0 ? (
+            <Typography textColor="neutral600">
+              {`No published course is available for ${company?.name || 'this company'} yet. Publish a course first.`}
+            </Typography>
           ) : (
-            <CheckList
-              items={courseItems}
-              value={form.courseDocumentIds}
-              onChange={(v) => set({ courseDocumentIds: v })}
-              disabled={readOnly}
-              searchPlaceholder="Search courses"
-              emptyText={`No published course is available for ${company?.name || 'this company'} yet. Publish a course first.`}
-            />
+            <Field.Root name="courses" error={errors.courses}>
+              <Field.Label>Select courses</Field.Label>
+              <MultiSelect
+                placeholder="Select one or more courses"
+                value={form.courseDocumentIds}
+                onChange={(values) => set({ courseDocumentIds: values })}
+                onClear={() => set({ courseDocumentIds: [] })}
+                disabled={readOnly}
+                withTags
+              >
+                {courseItems.map((item) => (
+                  <MultiSelectOption key={item.value} value={item.value}>
+                    {item.label} {item.hint ? `(${item.hint})` : ''}
+                  </MultiSelectOption>
+                ))}
+              </MultiSelect>
+              <Field.Error />
+            </Field.Root>
           )}
           <ErrorText>{errors.courses}</ErrorText>
         </Section>

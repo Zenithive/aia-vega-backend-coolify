@@ -21,6 +21,7 @@ const { getOrCreateGroupIdForDocument } = require('../../../../utils/course-grou
 const COURSE_UID = 'api::course.course';
 const COMPANY_UID = 'api::company.company';
 const FEEDBACK_TEMPLATE_UID = 'api::feedback-template.feedback-template';
+const USER_PROGRESS_UID = 'api::user-progress.user-progress';
 
 /** Never written by the course service: assignments are saved by the assignment service, group_id by the lineage middleware. */
 const READ_ONLY_FIELDS = ['course_assignments', 'group_id'];
@@ -125,6 +126,16 @@ module.exports = ({ strapi }) => {
         'This course is published, so it is locked for editing. Create a new version to make changes.'
       );
     }
+  }
+
+  /** Everyone assigned to a course document: one User Progress per learner is created on assignment. */
+  async function learnerIdsOf(documentId) {
+    const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
+      where: { course: { documentId }, publishedAt: { $notNull: true } },
+      select: ['id'],
+      populate: { user: { select: ['id'] } },
+    });
+    return [...new Set((rows || []).map((r) => r.user?.id).filter(Boolean))];
   }
 
   /** course_version must be unique within a lineage (all versions sharing the same group_id). */
@@ -327,11 +338,70 @@ module.exports = ({ strapi }) => {
       return this.get(created.documentId);
     },
 
-    async publish(documentId) {
+    /**
+     * Earlier published versions of this course (same lineage) that have learners, with the
+     * learner count — the sources offered for auto-assigning a new version on publish.
+     */
+    async autoAssignSources(documentId) {
+      const course = await findDraft(documentId);
+      if (!course) return null;
+      const lineage = await findLineage(course.group_id);
+      const others = lineage.filter((v) => v.documentId !== documentId && v.status !== 'draft');
+      const data = [];
+      for (const v of others) {
+        const learnerIds = await learnerIdsOf(v.documentId);
+        if (learnerIds.length) {
+          data.push({
+            documentId: v.documentId,
+            title: v.title,
+            course_version: v.course_version,
+            createdAt: v.createdAt,
+            learnerCount: learnerIds.length,
+          });
+        }
+      }
+      data.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      return { data };
+    },
+
+    /**
+     * Publishes the course. With `autoAssign` ({ sourceDocumentId, dueDate }) it then assigns
+     * the new version to everyone currently assigned to that earlier version, with one due date
+     * for all. Their assignment and progress on the earlier version are left as they are.
+     */
+    async publish(documentId, { autoAssign = null } = {}) {
       const existing = await findDraft(documentId);
       if (!existing) return null;
+
+      let plan = null;
+      if (autoAssign) {
+        const dueDate = str(autoAssign.dueDate);
+        const sourceDocumentId = str(autoAssign.sourceDocumentId);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new errors.ValidationError('Choose a due date for the auto-assigned learners.');
+        const sources = (await this.autoAssignSources(documentId))?.data || [];
+        if (!sources.some((s) => s.documentId === sourceDocumentId)) {
+          throw new errors.ValidationError('Choose an earlier published version of this course to take the learners from.');
+        }
+        plan = { dueDate, userIds: await learnerIdsOf(sourceDocumentId) };
+      }
+
       await documents().publish({ documentId });
-      return this.get(documentId);
+
+      let autoAssignResult = null;
+      if (plan) {
+        try {
+          autoAssignResult = await strapi
+            .plugin('course-management')
+            .service('assignment')
+            .assignUsersToCourse({ courseDocumentId: documentId, userIds: plan.userIds, dueDate: plan.dueDate });
+        } catch (err) {
+          strapi.log.error(`[course-management] auto-assign of ${documentId} failed: ${err?.stack || err}`);
+          autoAssignResult = { assigned: 0, skipped: [], error: err?.message || 'Auto-assignment failed' };
+        }
+      }
+
+      const res = await this.get(documentId);
+      return { ...res, autoAssign: autoAssignResult };
     },
 
     /**
