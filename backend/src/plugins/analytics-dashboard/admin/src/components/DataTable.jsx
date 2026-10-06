@@ -21,6 +21,9 @@ export function DataTable({
   fullData = [],
   paginatedData = [],
   onDownloadStyleChange = null,
+  // Optional: replaces the built-in Excel export (e.g. a report with more detail than the table).
+  onExport = null,
+  exportLabel = 'Download Excel',
 }) {
   const [downloadStyle, setDownloadStyle] = React.useState(propDownloadStyle);
 
@@ -121,14 +124,14 @@ export function DataTable({
             <Button
               variant="secondary"
               size="S"
-              onClick={handleExportToExcel}
+              onClick={onExport || handleExportToExcel}
               title="Download as Excel file"
             >
-              Download Excel
+              {exportLabel}
             </Button>
           )}
           {/* Dropdown for download style, right of Download Excel button */}
-          {data?.length > 0 && (
+          {data?.length > 0 && !onExport && (
             <Box style={{ minWidth: 180 }}>
               <label htmlFor="download-style-select" style={{ fontSize: '14px', marginRight: 8 }}>Download:</label>
               <select

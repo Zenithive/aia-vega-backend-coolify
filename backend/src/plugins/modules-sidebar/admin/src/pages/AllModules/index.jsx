@@ -1,3 +1,7 @@
+//@ts-nocheck
+
+'use strict';
+
 import React, { useMemo, Children, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -312,7 +316,6 @@ const AllModulesPage = () => {
 
     const fetchUserRoles = async () => {
       try {
-        // Try Strapi admin API endpoint with roles populated
         const baseURL = (window.strapi && window.strapi.backendURL) || 'http://localhost:1337';
         const response = await fetch(`${baseURL}/admin/users/me?populate=roles`, {
           method: 'GET',
@@ -329,61 +332,32 @@ const AllModulesPage = () => {
         
         if (response.ok) {
           const responseData = await response.json();
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[AllModules] Fetched user from API:', responseData);
-          }
-          
-          // Handle Strapi v5 API response structure: { data: { ... } }
           const userData = responseData?.data || responseData;
-          
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[AllModules] Extracted userData:', userData);
-            console.log('[AllModules] userData.roles:', userData?.roles);
-          }
           
           if (userData?.roles) {
             const roles = Array.isArray(userData.roles) ? userData.roles : [userData.roles];
             setApiRoles(roles);
             
-            // CRITICAL: Store roles IMMEDIATELY in window and sessionStorage
-            // This allows the global script to access them right away
             try {
               window['__MODULES_SIDEBAR_ROLES__'] = roles;
               sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(roles));
-              // Trigger a custom event to notify global script immediately
               window.dispatchEvent(new CustomEvent('modules-sidebar-roles-updated', { detail: roles }));
             } catch (e) {
               // Ignore storage errors
             }
-            
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[AllModules] Set API roles:', roles);
-            }
           } else if (userData?.role) {
-            // Handle single role
             const roles = [userData.role];
             setApiRoles(roles);
             
-            // CRITICAL: Store roles IMMEDIATELY in window and sessionStorage
             try {
               window['__MODULES_SIDEBAR_ROLES__'] = roles;
               sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(roles));
-              // Trigger a custom event to notify global script immediately
               window.dispatchEvent(new CustomEvent('modules-sidebar-roles-updated', { detail: roles }));
             } catch (e) {
               // Ignore storage errors
             }
-            
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[AllModules] Set API role (single):', userData.role);
-            }
           }
         } else {
-          const errorText = await response.text();
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[AllModules] API error response:', errorText);
-          }
-          // Try alternative endpoint with populate
           const altResponse = await fetch(`${baseURL}/admin/users/me?populate=*`, {
             method: 'GET',
             headers: {
@@ -394,16 +368,11 @@ const AllModulesPage = () => {
           });
           if (altResponse.ok) {
             const responseData = await altResponse.json();
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[AllModules] Fetched user from alternative API:', responseData);
-            }
-            // Handle Strapi v5 API response structure
             const userData = responseData?.data || responseData;
             if (userData?.roles) {
               const roles = Array.isArray(userData.roles) ? userData.roles : [userData.roles];
               setApiRoles(roles);
               
-              // CRITICAL: Store roles IMMEDIATELY
               try {
                 window['__MODULES_SIDEBAR_ROLES__'] = roles;
                 sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(roles));
@@ -415,7 +384,6 @@ const AllModulesPage = () => {
               const roles = [userData.role];
               setApiRoles(roles);
               
-              // CRITICAL: Store roles IMMEDIATELY
               try {
                 window['__MODULES_SIDEBAR_ROLES__'] = roles;
                 sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(roles));
@@ -435,15 +403,11 @@ const AllModulesPage = () => {
     fetchUserRoles();
   }, [token]);
 
-  // Strapi admin stores user info - try multiple paths
-  // Memoize the selector to avoid creating a new function on every render
   const selectRoles = useMemo(() => (state) => {
-    // Try multiple paths to find user roles
     const adminUser = state?.admin_app?.user;
     const authUser = state?.auth?.user || state?.auth?.userInfo;
     const adminApi = state?.adminApi;
     
-    // Try to get roles from various locations
     let foundRoles = 
       adminUser?.roles ||
       authUser?.roles ||
@@ -451,14 +415,11 @@ const AllModulesPage = () => {
       authUser?.userInfo?.roles ||
       state?.admin_app?.userInfo?.roles ||
       state?.auth?.userInfo?.roles ||
-      // Check adminApi
       adminApi?.user?.roles ||
       adminApi?.userInfo?.roles ||
-      // Try single role property
       (adminUser?.role ? [adminUser.role] : null) ||
       (authUser?.role ? [authUser.role] : null) ||
       (adminApi?.user?.role ? [adminApi.user.role] : null) ||
-      // Try window.strapi
       (window.strapi && window.strapi.user && window.strapi.user.roles) ||
       (window.strapi && window.strapi.currentUser && window.strapi.currentUser.roles) ||
       (window.strapi && window.strapi.admin && window.strapi.admin.user && window.strapi.admin.user.roles) ||
@@ -466,32 +427,8 @@ const AllModulesPage = () => {
       (window.strapi && window.strapi.currentUser && window.strapi.currentUser.role ? [window.strapi.currentUser.role] : null) ||
       [];
     
-    // If roles is an array of role objects, return as is
-    // If it's a single role object, wrap it in an array
     if (foundRoles && !Array.isArray(foundRoles)) {
       foundRoles = [foundRoles];
-    }
-    
-    // Debug: log the entire state structure to find where roles are stored
-    if (process.env.NODE_ENV === 'development' && (!foundRoles || foundRoles.length === 0)) {
-      console.log('[AllModules] admin_app:', state?.admin_app);
-      console.log('[AllModules] admin_app.permissions:', state?.admin_app?.permissions);
-      console.log('[AllModules] adminApi:', adminApi);
-      // Check if permissions object has role info
-      const permissions = state?.admin_app?.permissions;
-      if (permissions && typeof permissions === 'object') {
-        console.log('[AllModules] permissions keys:', Object.keys(permissions));
-        // Try to find role info in permissions
-        Object.keys(permissions).forEach(key => {
-          if (key.toLowerCase().includes('role') || key.toLowerCase().includes('user')) {
-            console.log(`[AllModules] Found ${key}:`, permissions[key]);
-          }
-        });
-      }
-      console.log('[AllModules] Found roles from Redux:', foundRoles);
-      console.log('[AllModules] adminUser:', adminUser);
-      console.log('[AllModules] authUser:', authUser);
-      console.log('[AllModules] adminApi.user:', adminApi?.user);
     }
     
     return foundRoles || [];
@@ -499,7 +436,6 @@ const AllModulesPage = () => {
   
   const reduxRoles = useSelector(selectRoles);
 
-  // Combine Redux roles and API roles (API takes precedence if Redux is empty)
   const roles = useMemo(() => {
     if (reduxRoles && reduxRoles.length > 0) {
       return reduxRoles;
@@ -510,48 +446,19 @@ const AllModulesPage = () => {
     return [];
   }, [reduxRoles, apiRoles]);
 
-  // Store roles in window and sessionStorage IMMEDIATELY when fetched
-  // This allows the global script to access roles as early as possible
   useEffect(() => {
-    // Store Redux roles immediately if available
-    if (reduxRoles && reduxRoles.length > 0) {
-      try {
-        window['__MODULES_SIDEBAR_ROLES__'] = reduxRoles;
-        sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(reduxRoles));
-        // Trigger a custom event to notify global script
-        window.dispatchEvent(new CustomEvent('modules-sidebar-roles-updated', { detail: reduxRoles }));
-      } catch (e) {
-        // Ignore storage errors
-      }
-    }
-    
-    // Store API roles when they arrive (they take precedence)
-    if (apiRoles && apiRoles.length > 0) {
-      try {
-        window['__MODULES_SIDEBAR_ROLES__'] = apiRoles;
-        sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(apiRoles));
-        // Trigger a custom event to notify global script
-        window.dispatchEvent(new CustomEvent('modules-sidebar-roles-updated', { detail: apiRoles }));
-      } catch (e) {
-        // Ignore storage errors
-      }
-    }
-    
-    // Store combined roles
     if (roles && roles.length > 0) {
       try {
         window['__MODULES_SIDEBAR_ROLES__'] = roles;
         sessionStorage.setItem('__modules_sidebar_roles__', JSON.stringify(roles));
-        // Trigger a custom event to notify global script
         window.dispatchEvent(new CustomEvent('modules-sidebar-roles-updated', { detail: roles }));
       } catch (e) {
         // Ignore storage errors
       }
     }
-  }, [roles, reduxRoles, apiRoles]);
+  }, [roles]);
 
   const roleFlags = useMemo(() => {
-    // Helper to check exact match first, then contains
     const hasCodeOrName = (needle) =>
       roles.some(
         (r) =>
@@ -565,68 +472,50 @@ const AllModulesPage = () => {
           r?.name?.toLowerCase().includes(needle.toLowerCase())
       );
     
-    // Match exact role names: "Super Admin", "HR Admin", "LM Admin", "Admin"
-    // Priority: exact match first, then contains
     const isSuperAdmin =
       hasCodeOrName('super admin') ||
       hasCodeOrName('strapi-super-admin') ||
       contains('super admin') ||
       contains('super-admin');
     
-    // For HR Admin: check for exact "hr admin" first, then just "hr"
     const isHR = 
       hasCodeOrName('hr admin') ||
       contains('hr admin') ||
-      (hasCodeOrName('hr') && !contains('lm') && !contains('admin')); // Only match "hr" if it doesn't contain "lm" or "admin"
+      (hasCodeOrName('hr') && !contains('lm') && !contains('admin'));
     
-    // For LM Admin: check for exact "lm admin" first, then just "lm"
     const isLM = 
       hasCodeOrName('lm admin') ||
       contains('lm admin') ||
-      (hasCodeOrName('lm') && !contains('hr') && !contains('admin')) || // Only match "lm" if it doesn't contain "hr" or "admin"
-      (contains('lm') && !contains('hr') && !contains('hr admin') && !contains('admin')); // Only match "lm" if it doesn't contain "hr" or "admin"
+      (hasCodeOrName('lm') && !contains('hr') && !contains('admin')) ||
+      (contains('lm') && !contains('hr') && !contains('hr admin') && !contains('admin'));
     
-    // For Admin: check for exact "admin" but not "super admin", "hr admin", or "lm admin"
     const isAdmin = 
       (hasCodeOrName('admin') || contains('admin')) && 
       !contains('super') && 
       !contains('hr') && 
       !contains('lm');
     
-    // Debug logging (remove in production if needed)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[AllModules] Roles detected:', roles);
-      console.log('[AllModules] Role flags:', { isSuperAdmin, isHR, isLM, isAdmin });
-    }
-    
     return { isSuperAdmin, isHR, isLM, isAdmin };
   }, [roles]);
 
-  // If roles are empty (could not be read), be permissive: user already passed plugin permission to reach here.
   const rolesKnown = Array.isArray(roles) && roles.length > 0;
   const effectiveFlags = rolesKnown
     ? roleFlags
     : {
-        // When roles are unknown, allow everything (user already has plugin permission)
         isSuperAdmin: true,
         isHR: true,
         isLM: true,
         isAdmin: true,
       };
   
-  // Ensure only one role is active at a time (Super Admin takes precedence)
   const finalFlags = effectiveFlags.isSuperAdmin
     ? { isSuperAdmin: true, isHR: false, isLM: false, isAdmin: false }
     : { isSuperAdmin: false, isHR: effectiveFlags.isHR, isLM: effectiveFlags.isLM, isAdmin: effectiveFlags.isAdmin };
 
-  const { isSuperAdmin, isHR, isLM, isAdmin } = finalFlags;
+  const { isSuperAdmin } = finalFlags;
 
-  // Fetch admin permissions for the current user and normalize them into { action, subject }[]
   useEffect(() => {
     if (!token) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[AllModules] No token found, skipping permissions fetch');
-      }
       setLoadingPermissions(false);
       return;
     }
@@ -644,19 +533,11 @@ const AllModulesPage = () => {
         });
 
         if (!response.ok) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[AllModules] Permissions API error:', response.status, response.statusText);
-          }
           setLoadingPermissions(false);
           return;
         }
 
         const data = await response.json();
-
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[AllModules] Raw permissions from API:', data);
-        }
-
         const flat = [];
 
         const flatten = (node) => {
@@ -674,11 +555,6 @@ const AllModulesPage = () => {
         };
 
         flatten(data);
-
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[AllModules] Flattened permissions:', flat);
-        }
-
         setPermissions(flat);
       } catch (error) {
         if (process.env.NODE_ENV === 'development') {
@@ -722,13 +598,9 @@ const AllModulesPage = () => {
     fetchConfig();
   }, [token]);
 
-  // Helper that answers: can the current admin user READ a given content-type UID?
-  // This is driven purely by admin permissions (Administration -> Roles & Permissions).
   const canSee = React.useCallback(
     (subjectUid) => {
       if (!subjectUid) return false;
-
-      // Super Admin: always allowed
       if (isSuperAdmin) return true;
 
       if (!Array.isArray(permissions) || permissions.length === 0) {
@@ -739,14 +611,12 @@ const AllModulesPage = () => {
         const action = perm?.action || '';
         const subject = perm?.subject ?? null;
 
-        // Typical content manager "read" actions
         const isCmRead =
           action === 'plugin::content-manager.explorer.read' ||
           action === 'plugin::content-manager.collection-types.read' ||
           action === 'plugin::content-manager.single-types.read' ||
           action === 'plugin::content-manager.collection-types.explorer.read';
 
-        // Global CM read (subject === null) means user can read all content types
         if (isCmRead && subject == null) {
           return true;
         }
@@ -759,7 +629,6 @@ const AllModulesPage = () => {
     [permissions, isSuperAdmin]
   );
 
-  // If user has at least one "content-manager read" permission or is Super Admin, show the page.
   const canSeeAllModules =
     isSuperAdmin ||
     permissions.some((perm) => {
@@ -773,35 +642,65 @@ const AllModulesPage = () => {
     });
 
   const iconMap = { Briefcase, PinMap, User, Message, Book, Question, Cog };
+
+  // Collections managed through a dedicated plugin page instead of the Content Manager
+  const PLUGIN_LINKS = {
+    'api::notification.notification': { label: 'Notifications', to: '/plugins/modules-sidebar/notifications' },
+    'api::profile-edit-request.profile-edit-request': { label: 'Profile Edit Requests', to: '/plugins/profile-edit-requests' },
+  };
+
+  const COURSE_COLLECTION_UIDS = [
+    'api::course.course',
+    'api::course-assignment.course-assignment',
+    'api::course-workflow.course-workflow',
+    'api::quiz-submission.quiz-submission',
+    'api::quiz-reattempt-request.quiz-reattempt-request',
+    'api::feedback-submission.feedback-submission',
+    'api::feedback-template.feedback-template',
+    'api::offline-module-completion.offline-module-completion',
+    'api::user-progress.user-progress',
+    'api::module-video-progress.module-video-progress',
+  ];
   const HIDDEN_COLLECTION_UIDS = new Set([
     'api::city.city',
     'api::townhall.townhall',
-    'api::profile-edit-request.profile-edit-request',
+    ...COURSE_COLLECTION_UIDS,
   ]);
+
+  // Course Management also holds offline module proof and feedback.
+  const showCourseManagement =
+    canSee('api::course.course') ||
+    canSee('api::course-assignment.course-assignment') ||
+    canSee('api::offline-module-completion.offline-module-completion') ||
+    canSee('api::feedback-submission.feedback-submission');
+  // Quiz Management keeps its plugin id "learner-activity".
+  const showQuizManagement =
+    canSee('api::quiz-submission.quiz-submission') ||
+    canSee('api::quiz-reattempt-request.quiz-reattempt-request');
+  const showFeedbackTemplates = canSee('api::feedback-template.feedback-template');
+
+  const learningSection =
+    showCourseManagement || showQuizManagement || showFeedbackTemplates ? (
+      <Section key="learning-management" title="Learning Management" icon={Book}>
+        {showCourseManagement && <AdminLink label="Course Management" to="/plugins/course-management" />}
+        {showQuizManagement && <AdminLink label="Quiz Management" to="/plugins/learner-activity" />}
+        {showFeedbackTemplates && (
+          <AdminLink
+            label="Feedback Templates"
+            to="/content-manager/collection-types/api::feedback-template.feedback-template"
+          />
+        )}
+      </Section>
+    ) : null;
+
   const effectiveSections = useMemo(() => {
     if (!sectionConfig?.sections?.length) return null;
-    const assigned = new Set();
-    sectionConfig.sections.forEach((s) =>
-      (s.collectionUids || []).forEach((u) => {
-        if (!HIDDEN_COLLECTION_UIDS.has(u)) assigned.add(u);
-      })
-    );
-    const unassigned = (collectionTypes || []).filter(
-      (ct) => !assigned.has(ct.uid) && !HIDDEN_COLLECTION_UIDS.has(ct.uid)
-    );
-    let sections = [...sectionConfig.sections];
-    if (!sections.some((s) => s.id === 'other')) {
-      sections = [...sections, { id: 'other', title: 'Other', icon: 'Cog', collectionUids: [] }];
-    }
-    const otherSectionId = 'other';
-    return sections.map((s) => ({
-      ...s,
-      collectionUids: [
-        ...(s.collectionUids || []).filter((u) => !HIDDEN_COLLECTION_UIDS.has(u)),
-        ...(s.id === otherSectionId ? unassigned.map((ct) => ct.uid) : []),
-      ],
-    }));
-  }, [sectionConfig, collectionTypes]);
+    return sectionConfig.sections
+      .map((s) => ({
+        ...s,
+        collectionUids: (s.collectionUids || []).filter((u) => !HIDDEN_COLLECTION_UIDS.has(u)),
+      }));
+  }, [sectionConfig]);
 
   return (
     <>
@@ -843,13 +742,19 @@ const AllModulesPage = () => {
               }}
             >
               {effectiveSections?.length > 0 ? (
-                effectiveSections.map((section) => {
+                <>
+                {learningSection}
+                {effectiveSections.map((section) => {
                   const Icon = iconMap[section.icon] || User;
                   const visibleCollections = (section.collectionUids || []).filter((uid) => canSee(uid));
                   if (visibleCollections.length === 0) return null;
                   return (
                     <Section key={section.id} title={section.title} icon={Icon}>
                       {visibleCollections.map((uid) => {
+                        const pluginLink = PLUGIN_LINKS[uid];
+                        if (pluginLink) {
+                          return <AdminLink key={uid} label={pluginLink.label} to={pluginLink.to} />;
+                        }
                         const ct = collectionTypes.find((c) => c.uid === uid);
                         const label = ct?.displayName || (uid === 'plugin::users-permissions.user' ? 'User' : uid.split('.').pop() || uid);
                         return (
@@ -862,14 +767,16 @@ const AllModulesPage = () => {
                       })}
                     </Section>
                   );
-                })
+                })}
+                </>
               ) : (
                 <>
               {/* 1. Organization - driven by admin permissions */}
               {(canSee('api::company.company') ||
                 canSee('api::company-policy.company-policy') ||
                 canSee('api::department.department') ||
-                canSee('api::designation.designation')) && (
+                canSee('api::designation.designation') ||
+                canSee('api::profile-edit-request.profile-edit-request')) && (
                 <Section title="Organization" icon={Briefcase}>
                   {canSee('api::company.company') && (
                     <AdminLink
@@ -895,24 +802,25 @@ const AllModulesPage = () => {
                       to="/content-manager/collection-types/api::designation.designation"
                     />
                   )}
+                  {canSee('api::profile-edit-request.profile-edit-request') && (
+                    <AdminLink
+                      label={PLUGIN_LINKS['api::profile-edit-request.profile-edit-request'].label}
+                      to={PLUGIN_LINKS['api::profile-edit-request.profile-edit-request'].to}
+                    />
+                  )}
                 </Section>
               )}
 
-              {/* 2. HR Management - driven by admin permissions */}
+              {/* 2. HR Management */}
               {(canSee('plugin::users-permissions.user') ||
-                canSee('api::activity-log.activity-log') ||
                 canSee('api::holiday.holiday') ||
                 canSee('api::gallery-item.gallery-item') ||
-                canSee('api::form-template.form-template')) && (
+                canSee('api::form-template.form-template') ||
+                canSee('api::work-location.work-location') ||
+                canSee('api::unit-location.unit-location')) && (
                 <Section title="HR Management" icon={User}>
                   {canSee('plugin::users-permissions.user') && (
                     <AdminLink label="User" to="/content-manager/collection-types/plugin::users-permissions.user" />
-                  )}
-                  {canSee('api::activity-log.activity-log') && (
-                    <AdminLink
-                      label="Activity Log"
-                      to="/content-manager/collection-types/api::activity-log.activity-log"
-                    />
                   )}
                   {canSee('api::holiday.holiday') && (
                     <AdminLink
@@ -932,16 +840,11 @@ const AllModulesPage = () => {
                       to="/content-manager/collection-types/api::form-template.form-template"
                     />
                   )}
-                </Section>
-              )}
-
-              {/* 3. Location Management - driven by admin permissions */}
-              {(canSee('api::area.area') ||
-                canSee('api::unit-location.unit-location') ||
-                canSee('api::route.route')) && (
-                <Section title="Location Management" icon={PinMap}>
-                  {canSee('api::area.area') && (
-                    <AdminLink label="Area" to="/content-manager/collection-types/api::area.area" />
+                  {canSee('api::work-location.work-location') && (
+                    <AdminLink
+                      label="Work Location"
+                      to="/content-manager/collection-types/api::work-location.work-location"
+                    />
                   )}
                   {canSee('api::unit-location.unit-location') && (
                     <AdminLink
@@ -949,13 +852,10 @@ const AllModulesPage = () => {
                       to="/content-manager/collection-types/api::unit-location.unit-location"
                     />
                   )}
-                  {canSee('api::route.route') && (
-                    <AdminLink label="Routes" to="/content-manager/collection-types/api::route.route" />
-                  )}
                 </Section>
               )}
 
-              {/* 4. Content & Communication - driven by admin permissions */}
+              {/* 3. Content & Communication - driven by admin permissions */}
               {(canSee('api::notification.notification') ||
                 canSee('api::news.news') ||
                 canSee('api::news-category.news-category') ||
@@ -963,10 +863,7 @@ const AllModulesPage = () => {
                 canSee('api::important-link.important-link')) && (
                 <Section title="Content & Communication" icon={Message}>
                   {canSee('api::notification.notification') && (
-                    <AdminLink
-                      label="Notifications"
-                      to="/content-manager/collection-types/api::notification.notification"
-                    />
+                    <AdminLink label="Notifications" to={PLUGIN_LINKS['api::notification.notification'].to} />
                   )}
                   {canSee('api::news.news') && (
                     <AdminLink label="News" to="/content-manager/collection-types/api::news.news" />
@@ -989,65 +886,8 @@ const AllModulesPage = () => {
                 </Section>
               )}
 
-              {/* 5. Learning Management - driven by admin permissions */}
-              {(canSee('api::course.course') ||
-                canSee('api::course-category.course-category') ||
-                canSee('api::course-assignment.course-assignment')) && (
-                <Section title="Learning Management" icon={Book}>
-                  {canSee('api::course.course') && (
-                    <AdminLink
-                      label="Courses"
-                      to="/content-manager/collection-types/api::course.course"
-                    />
-                  )}
-                  {canSee('api::course-category.course-category') && (
-                    <AdminLink
-                      label="Course Categories"
-                      to="/content-manager/collection-types/api::course-category.course-category"
-                    />
-                  )}
-                  {canSee('api::course-assignment.course-assignment') && (
-                    <AdminLink
-                      label="Course Assignments"
-                      to="/content-manager/collection-types/api::course-assignment.course-assignment"
-                    />
-                  )}
-                </Section>
-              )}
-
-              {/* 6. Quiz Management - driven by admin permissions */}
-              {(canSee('api::quizze.quizze') ||
-                canSee('api::quiz-submission.quiz-submission') ||
-                canSee('api::user-progress.user-progress') ||
-                canSee('api::quiz-reattempt-request.quiz-reattempt-request')) && (
-                <Section title="Quiz Management" icon={Question}>
-                  {/* NOTE: Real UID is api::quizze.quizze; keeping label as "Quizzes" */}
-                  {canSee('api::quizze.quizze') && (
-                    <AdminLink
-                      label="Quizzes"
-                      to="/content-manager/collection-types/api::quizze.quizze"
-                    />
-                  )}
-                  {canSee('api::quiz-submission.quiz-submission') && (
-                    <AdminLink
-                      label="Quiz Submissions"
-                      to="/content-manager/collection-types/api::quiz-submission.quiz-submission"
-                    />
-                  )}
-                  {canSee('api::user-progress.user-progress') && (
-                    <AdminLink
-                      label="User Progress"
-                      to="/content-manager/collection-types/api::user-progress.user-progress"
-                    />
-                  )}
-                  {canSee('api::quiz-reattempt-request.quiz-reattempt-request') && (
-                    <AdminLink
-                      label="Quiz Reattempt Requests"
-                      to="/plugins/quiz-reattempt-requests"
-                    />
-                  )}
-                </Section>
-              )}
+              {/* 4. Learning Management */}
+              {learningSection}
                 </>
               )}
             </Box>
@@ -1076,4 +916,3 @@ const AllModulesPage = () => {
 };
 
 export default AllModulesPage;
-

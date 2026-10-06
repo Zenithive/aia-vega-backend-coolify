@@ -24,14 +24,6 @@ module.exports = ({ env }) => ({
   },
 
   /**
-   * Local plugin: Quiz Reattempt Requests
-   */
-  'quiz-reattempt-requests': {
-    enabled: true,
-    resolve: './src/plugins/quiz-reattempt-requests',
-  },
-
-  /**
    * Local plugin: Profile Edit Requests
    */
   'profile-edit-requests': {
@@ -40,27 +32,23 @@ module.exports = ({ env }) => ({
   },
 
   /**
-   * Local plugin: Quiz Submission
+   * Local plugin: Course Management (create, edit, publish and assign courses)
    */
-  'quiz-submission-admin': {
+  'course-management': {
     enabled: true,
-    resolve: './src/plugins/quiz-submission-admin',
+    resolve: './src/plugins/course-management',
   },
 
   /**
-   * Local plugin: Feedback Submission
+   * Local plugin: Quiz Management (id "learner-activity") — answer review, quiz reattempt
+   * requests and quiz results in one place (offline module proof and feedback are in Course
+   * Management). Replaces the former
+   * quiz-submission-admin, feedback-submission-admin, quiz-reattempt-requests and
+   * offline-assessments plugins (their role permissions are carried over on start).
    */
-  'feedback-submission-admin': {
+  'learner-activity': {
     enabled: true,
-    resolve: './src/plugins/feedback-submission-admin',
-  },
-
-  /**
-   * Local plugin: Offline Assessments (completion proof for offline course modules)
-   */
-  'offline-assessments': {
-    enabled: true,
-    resolve: './src/plugins/offline-assessments',
+    resolve: './src/plugins/learner-activity',
   },
 
   /**

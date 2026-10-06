@@ -135,4 +135,5 @@ module.exports = {
   backfillMissingCourseGroupIds,
   lockGroupIdFieldInAdmin,
   isValidGroupId,
+  getOrCreateGroupIdForDocument,
 };

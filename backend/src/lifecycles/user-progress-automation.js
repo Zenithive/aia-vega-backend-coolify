@@ -994,4 +994,4 @@ async function processCourseAssignmentCreate(strapi, params, result) {
   }
 }
 
-module.exports = { registerUserProgressLifecycles, processCourseAssignmentCreate };
+module.exports = { registerUserProgressLifecycles, processCourseAssignmentCreate, sendDueDateChangedNotifications };

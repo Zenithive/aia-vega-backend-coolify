@@ -24,7 +24,7 @@ export default {
       icon: List,
       intlLabel: {
         id: `${PLUGIN_ID}.menu.main`,
-        defaultMessage: 'Employee Data Changes',
+        defaultMessage: ' Audit log - Employee Data Changes',
       },
       permissions: [
         {

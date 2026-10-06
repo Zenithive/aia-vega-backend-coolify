@@ -448,8 +448,17 @@ module.exports = {
     });
 
     // Course: published entries are read-only from Content Manager update flow.
-    // If a course has a published version, block updates from both Draft/Published tabs.
+    // If a course has a published version, block updates from both Draft/Published tabs, and
+    // block unpublishing: it deletes the published row, which drops every learner record linked
+    // to it (user progress, quiz / feedback submissions, video progress, offline proof,
+    // reattempt requests); republishing creates a new row nothing points to. Changes go into a
+    // new version instead.
     strapi.documents.use(async (context, next) => {
+      if (context.uid === COURSE_UID && context.action === 'unpublish') {
+        throw new errors.ApplicationError(
+          'Published courses cannot be unpublished: learners would lose their progress on it. Create a new version to make changes.'
+        );
+      }
       if (context.uid !== COURSE_UID || context.action !== 'update') {
         return await next();
       }
@@ -484,7 +493,7 @@ module.exports = {
 
       if (publishedVersion) {
         throw new errors.ValidationError(
-          'Published course entries are locked. Create a duplicate or unpublish first, then edit.'
+          'Published courses are locked. Create a new version to make changes.'
         );
       }
 

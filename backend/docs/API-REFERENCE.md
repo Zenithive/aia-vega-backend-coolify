@@ -175,8 +175,15 @@ POST /api/news/:id/unlike
 These routes are for admin UI plugins and require admin auth:
 - GET /profile-edit-requests/requests
 - PUT /profile-edit-requests/requests/:id
-- GET /quiz-reattempt-requests/requests
-- PUT /quiz-reattempt-requests/requests/:id
+- GET /learner-activity/summary (pending reattempt requests / answer reviews)
+- GET /learner-activity/reattempts (approve / reject is saved through the Content Manager)
+- GET /learner-activity/quiz-results, /learner-activity/quiz-results/courses
+- GET /learner-activity/reviews, GET|PUT /learner-activity/reviews/:id, GET /learner-activity/reviews/courses
+- GET /learner-activity/feedback, /learner-activity/feedback/courses
+- GET /learner-activity/offline/courses, GET /learner-activity/offline/courses/:documentId/learners
+- POST /learner-activity/offline/completions, DELETE /learner-activity/offline/completions/:id
+- GET|POST /course-management/assignments, GET|PUT /course-management/assignments/:documentId
+- GET /course-management/assignment-options, /course-management/assignment-courses, /course-management/assignment-users
 - GET /audit-log/logs
 - GET /audit-log/content-types
 

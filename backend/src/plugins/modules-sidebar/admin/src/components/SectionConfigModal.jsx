@@ -14,7 +14,7 @@ const ICON_OPTIONS = ['Briefcase', 'User', 'PinMap', 'Message', 'Book', 'Questio
 
 export function SectionConfigModal({ onClose, onSave, initialConfig, collectionTypes }) {
   const fetchClient = useFetchClient();
-  const [config, setConfig] = useState(initialConfig || { defaultSection: 'other', sections: [] });
+  const [config, setConfig] = useState(initialConfig || { sections: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -48,25 +48,6 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
     }));
   };
 
-  const handleAddUnassignedToOther = () => {
-    const uids = unassignedCollections.map((ct) => ct.uid);
-    if (uids.length === 0) return;
-    setConfig((prev) => {
-      let sections = [...(prev.sections || [])];
-      if (!sections.some((s) => s.id === 'other')) {
-        sections = [...sections, { id: 'other', title: 'Other', icon: 'Cog', collectionUids: [] }];
-      }
-      return {
-        ...prev,
-        sections: sections.map((s) =>
-          s.id === 'other'
-            ? { ...s, collectionUids: [...(s.collectionUids || []), ...uids] }
-            : s
-        ),
-      };
-    });
-  };
-
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -91,7 +72,7 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
         <Modal.Body>
         <Box paddingBottom={4}>
           <Typography variant="pi" textColor="neutral600">
-            Assign collections to sections. Unassigned collections appear in the Other section.
+            Assign collections to sections. Unassigned collections are not shown on All Modules.
           </Typography>
         </Box>
         {unassignedCollections.length > 0 && (
@@ -99,7 +80,7 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
             <Typography variant="sigma" marginBottom={2}>
               Unassigned collections ({unassignedCollections.length})
             </Typography>
-            <Flex gap={2} wrap="wrap" marginBottom={2}>
+            <Flex gap={2} wrap="wrap">
               {unassignedCollections.map((ct) => (
                 <Box
                   key={ct.uid}
@@ -114,9 +95,6 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
                 </Box>
               ))}
             </Flex>
-            <Button size="S" variant="secondary" onClick={handleAddUnassignedToOther}>
-              Add all to Other
-            </Button>
           </Box>
         )}
         {config.sections?.map((section) => (

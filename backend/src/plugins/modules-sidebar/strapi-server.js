@@ -33,17 +33,43 @@ async function getAdminUserFromToken(ctx, strapi) {
 }
 
 const DEFAULT_SECTION_CONFIG = {
-  defaultSection: 'other',
   sections: [
-    { id: 'org', title: 'Organization', icon: 'Briefcase', collectionUids: ['api::company.company', 'api::company-policy.company-policy', 'api::department.department', 'api::designation.designation'] },
-    { id: 'hr', title: 'HR Management', icon: 'User', collectionUids: ['plugin::users-permissions.user', 'api::activity-log.activity-log', 'api::holiday.holiday', 'api::gallery-item.gallery-item', 'api::form-template.form-template'] },
-    { id: 'location', title: 'Location Management', icon: 'PinMap', collectionUids: ['api::area.area', 'api::unit-location.unit-location', 'api::route.route'] },
+    { id: 'org', title: 'Organization', icon: 'Briefcase', collectionUids: ['api::company.company', 'api::company-policy.company-policy', 'api::department.department', 'api::designation.designation', 'api::profile-edit-request.profile-edit-request'] },
+    { id: 'hr', title: 'HR Management', icon: 'User', collectionUids: ['plugin::users-permissions.user', 'api::holiday.holiday', 'api::gallery-item.gallery-item', 'api::form-template.form-template', 'api::work-location.work-location', 'api::unit-location.unit-location'] },
     { id: 'content', title: 'Content & Communication', icon: 'Message', collectionUids: ['api::notification.notification', 'api::news.news', 'api::news-category.news-category', 'api::event.event', 'api::important-link.important-link'] },
     { id: 'learning', title: 'Learning Management', icon: 'Book', collectionUids: ['api::course.course', 'api::course-category.course-category', 'api::course-assignment.course-assignment'] },
     { id: 'quiz', title: 'Quiz Management', icon: 'Question', collectionUids: ['api::quizze.quizze', 'api::quiz-submission.quiz-submission', 'api::user-progress.user-progress'] },
-    { id: 'other', title: 'Other', icon: 'Cog', collectionUids: [] },
   ],
 };
+
+const REMOVED_SECTION_IDS = new Set(['other', 'location', 'location-management']);
+const REMOVED_COLLECTION_UIDS = new Set(['api::activity-log.activity-log', 'api::route.route', 'api::area.area']);
+// Collections that must appear in a given section (added there if not assigned anywhere)
+const REQUIRED_SECTION_UIDS = {
+  org: ['api::profile-edit-request.profile-edit-request'],
+  hr: ['api::work-location.work-location', 'api::unit-location.unit-location'],
+};
+
+/**
+ * Strip the retired Location Management / Other sections and activity-log from a stored config,
+ * and make sure required collections (Profile Edit Requests, Work Location, ...) are placed.
+ */
+function normalizeSectionConfig(config) {
+  if (!config || !Array.isArray(config.sections)) return DEFAULT_SECTION_CONFIG;
+  const { defaultSection, ...rest } = config;
+  const sections = config.sections
+    .filter((s) => s && !REMOVED_SECTION_IDS.has(s.id) && (s.title || '').toLowerCase() !== 'location management')
+    .map((s) => ({
+      ...s,
+      collectionUids: (s.collectionUids || []).filter((u) => !REMOVED_COLLECTION_UIDS.has(u)),
+    }));
+  const assigned = new Set(sections.flatMap((s) => s.collectionUids));
+  for (const [sectionId, uids] of Object.entries(REQUIRED_SECTION_UIDS)) {
+    const section = sections.find((s) => s.id === sectionId);
+    if (section) section.collectionUids = [...section.collectionUids, ...uids.filter((u) => !assigned.has(u))];
+  }
+  return { ...rest, sections };
+}
 
 module.exports = {
   register({ strapi }) {
@@ -152,7 +178,7 @@ module.exports = {
           try {
             const store = strapi.store({ type: 'plugin', name: 'modules-sidebar' });
             const config = await store.get({ key: 'sectionConfig' });
-            ctx.body = config || DEFAULT_SECTION_CONFIG;
+            ctx.body = normalizeSectionConfig(config);
           } catch (error) {
             strapi.log.error('modules-sidebar section-config GET error:', error);
             ctx.body = DEFAULT_SECTION_CONFIG;
@@ -181,7 +207,7 @@ module.exports = {
             const body = ctx.request?.body;
             if (!body || typeof body !== 'object') return ctx.badRequest('Invalid config');
             const store = strapi.store({ type: 'plugin', name: 'modules-sidebar' });
-            await store.set({ key: 'sectionConfig', value: body });
+            await store.set({ key: 'sectionConfig', value: normalizeSectionConfig(body) });
             ctx.body = { success: true };
           } catch (error) {
             strapi.log.error('modules-sidebar section-config PUT error:', error);

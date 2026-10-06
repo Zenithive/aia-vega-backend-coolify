@@ -18,6 +18,11 @@
       "type": "component",
       "component": "feedback-form.question",
       "repeatable": true
+    },
+    "companies": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::company.company"
     }
   }
 }

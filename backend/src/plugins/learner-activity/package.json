@@ -1,0 +1,21 @@
+{
+  "name": "learner-activity",
+  "version": "1.0.0",
+  "description": "Quiz follow-up for courses: answer review, reattempt requests and quiz results",
+  "strapi": {
+    "name": "learner-activity",
+    "displayName": "Quiz Management",
+    "description": "Answer review, reattempt requests and quiz results",
+    "kind": "plugin"
+  },
+  "dependencies": {},
+  "author": {
+    "name": "AIA-VEGA"
+  },
+  "maintainers": [],
+  "engines": {
+    "node": ">=18.0.0 <=24.x.x",
+    "npm": ">=6.0.0"
+  },
+  "license": "MIT"
+}

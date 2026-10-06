@@ -31,8 +31,6 @@ function submissionAdminSearchFromMeta(meta) {
   if (company) params.set("company", company);
   const courseId = String(meta?.courseDocumentId || meta?.courseId || "").trim();
   if (courseId) params.set("courseId", courseId);
-  // Quiz with descriptive answers → open the review tab of the quiz submission page.
-  if (meta?.pendingReview) params.set("tab", "review");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
@@ -124,7 +122,7 @@ export default function AdminNotificationsPage() {
   const handleNotificationClick = (notification) => {
     const type = getNormalizedType(notification);
     if (QUIZ_REATTEMPT_TYPES.includes(type)) {
-      navigate("/plugins/quiz-reattempt-requests");
+      navigate("/plugins/learner-activity/reattempts");
       return;
     }
     if (type === PROFILE_EDIT_REQUEST_TYPE) {
@@ -132,11 +130,13 @@ export default function AdminNotificationsPage() {
       return;
     }
     if (type === QUIZ_SUBMITTED_TYPE) {
-      navigate(`/plugins/quiz-submission-admin${submissionAdminSearchFromMeta(notification?.meta)}`);
+      // Quiz with descriptive answers → open answer review instead of the results report.
+      const tab = notification?.meta?.pendingReview ? "review" : "quiz-results";
+      navigate(`/plugins/learner-activity/${tab}${submissionAdminSearchFromMeta(notification?.meta)}`);
       return;
     }
     if (type === FEEDBACK_SUBMITTED_TYPE) {
-      navigate(`/plugins/feedback-submission-admin${submissionAdminSearchFromMeta(notification?.meta)}`);
+      navigate(`/plugins/course-management/feedback${submissionAdminSearchFromMeta(notification?.meta)}`);
     }
   };
 

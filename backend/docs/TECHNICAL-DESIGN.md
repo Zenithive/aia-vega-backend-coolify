@@ -20,7 +20,8 @@ Collection types drive content and learning workflows:
 - analytics-dashboard: learning + overall analytics endpoints
 - audit-log: admin audit trails (currently user-focused)
 - profile-edit-requests: admin UI workflow for employee profile changes
-- quiz-reattempt-requests: admin UI workflow for quiz reattempt approvals
+- course-management: guided admin UI to create, publish and assign courses (Courses | Assignments)
+- learner-activity: one admin page for answer review, quiz reattempt approvals, offline assessments, quiz results and feedback (replaces quiz-submission-admin, feedback-submission-admin, quiz-reattempt-requests and offline-assessments)
 - modules-sidebar: admin UI sidebar (navigation)
 
 ### 2.3 Notification Utility

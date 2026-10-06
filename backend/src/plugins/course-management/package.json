@@ -1,0 +1,21 @@
+{
+  "name": "course-management",
+  "version": "1.0.0",
+  "description": "Simplified course authoring UI on top of the existing Course content type",
+  "strapi": {
+    "name": "course-management",
+    "displayName": "Course Management",
+    "description": "Create, edit, publish and assign courses with a guided UI",
+    "kind": "plugin"
+  },
+  "dependencies": {},
+  "author": {
+    "name": "AIA-VEGA"
+  },
+  "maintainers": [],
+  "engines": {
+    "node": ">=18.0.0 <=24.x.x",
+    "npm": ">=6.0.0"
+  },
+  "license": "MIT"
+}
