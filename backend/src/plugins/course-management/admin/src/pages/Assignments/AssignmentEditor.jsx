@@ -1,6 +1,8 @@
 // @ts-nocheck
 /**
- * Assign a course: company → course(s) → who → due date, on one page.
+ * Assign a course on one page: step 1 company, course(s) and due date; step 2 who takes it.
+ * A summary panel beside the form says in plain words what saving will do (who is added and
+ * notified, who is removed, whose due date moves).
  *
  * Saving publishes the course assignment straight away; the existing automation then
  * creates learner progress and sends the "Course Assigned" notifications.
@@ -15,6 +17,7 @@ import {
   Checkbox,
   DatePicker,
   Dialog,
+  Divider,
   Field,
   Flex,
   Grid,
@@ -31,10 +34,28 @@ import {
   Thead,
   Tr,
   Typography,
-  MultiSelect,        
+  MultiSelect,
   MultiSelectOption,
 } from '@strapi/design-system';
-import { ArrowLeft, Check, Cross, File as FileIcon, Plus, Trash, Upload, User, PinMap, Briefcase, Pencil } from '@strapi/icons';
+import {
+  ArrowLeft,
+  Bell,
+  Book,
+  Briefcase,
+  Calendar,
+  Check,
+  Cross,
+  File as FileIcon,
+  House,
+  Lock,
+  Minus,
+  Pencil,
+  PinMap,
+  Plus,
+  Trash,
+  Upload,
+  User,
+} from '@strapi/icons';
 import { api, importEmployees } from '../../api';
 import { BASE_PATH } from '../../pluginId';
 import { useAssignmentPermissions } from '../../utils/usePermissions';
@@ -50,7 +71,7 @@ import {
   toISODate,
   toPickerDate,
 } from '../../utils/assignment';
-import { Section, ChoiceCards, Callout, ConfirmDialog } from '../../components/ui.jsx';
+import { ChoiceCards, Callout, ConfirmDialog } from '../../components/ui.jsx';
 
 const EMPTY_FORM = {
   companyDocumentId: '',
@@ -83,16 +104,6 @@ const sortedIds = (list) => [...(list || [])].map(String).sort().join(',');
 /** Everything that is saved, in a comparable form (users by id) — for the unsaved-changes guard. */
 function formSnapshot(form) {
   return JSON.stringify({ ...form, users: sortedIds((form.users || []).map((u) => u.id)), courseDocumentIds: sortedIds(form.courseDocumentIds) });
-}
-
-/** Who the assignment goes to: target type plus the chosen departments, locations or employees. */
-function selectionKey(form) {
-  return [
-    form.targetType,
-    sortedIds(form.departmentDocumentIds),
-    sortedIds(form.workLocationDocumentIds),
-    sortedIds((form.users || []).map((u) => u.id)),
-  ].join('|');
 }
 
 function savedUserIds(saved) {
@@ -147,29 +158,33 @@ function CheckList({ items, value, onChange, disabled, searchPlaceholder, emptyT
           </Flex>
         )}
       </Flex>
-      <Box
-        hasRadius
-        borderColor="neutral200"
-        borderStyle="solid"
-        borderWidth="1px"
-        padding={3}
-        style={{ maxHeight: 280, overflowY: 'auto' }}
-      >
-        <Flex direction="column" alignItems="stretch" gap={2}>
-          {shown.map((item) => (
-            <Checkbox key={item.value} checked={selected.has(item.value)} onCheckedChange={() => toggle(item.value)} disabled={disabled}>
-              <Flex gap={2}>
-                <Typography>{item.label}</Typography>
-                {item.hint && (
-                  <Typography variant="pi" textColor="neutral600">
-                    {item.hint}
+      <Box style={{ maxHeight: 320, overflowY: 'auto' }}>
+        <Box style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+          {shown.map((item) => {
+            const on = selected.has(item.value);
+            return (
+              <Box
+                key={item.value}
+                hasRadius
+                paddingTop={3}
+                paddingBottom={3}
+                paddingLeft={3}
+                paddingRight={3}
+                background={on ? 'primary100' : 'neutral0'}
+                borderColor={on ? 'primary200' : 'neutral200'}
+                borderStyle="solid"
+                borderWidth="1px"
+              >
+                <Checkbox checked={on} onCheckedChange={() => toggle(item.value)} disabled={disabled}>
+                  <Typography fontWeight={on ? 'bold' : undefined} textColor={on ? 'primary700' : 'neutral800'}>
+                    {item.label}
                   </Typography>
-                )}
-              </Flex>
-            </Checkbox>
-          ))}
-          {shown.length === 0 && <Typography textColor="neutral600">Nothing matches your search.</Typography>}
-        </Flex>
+                </Checkbox>
+              </Box>
+            );
+          })}
+        </Box>
+        {shown.length === 0 && <Typography textColor="neutral600">Nothing matches your search.</Typography>}
       </Box>
     </Box>
   );
@@ -250,7 +265,7 @@ function LearnerDueDateDialog({ target, assignmentId, onClose, onSaved }) {
         <Dialog.Header>Change due date</Dialog.Header>
         <Dialog.Body>
           <Flex direction="column" alignItems="stretch" gap={4} width="100%">
-            <Typography>
+            <Typography variant="epsilon">
               <strong>{employeeLabel(target.user)}</strong>
               {target.courseTitle ? ` · ${target.courseTitle}` : ''}
             </Typography>
@@ -263,7 +278,7 @@ function LearnerDueDateDialog({ target, assignmentId, onClose, onSaved }) {
                 clearLabel="Clear date"
               />
             </Field.Root>
-            <Typography variant="pi" textColor="neutral600">
+            <Typography variant="omega" textColor="neutral600">
               Only this employee's date changes. They get a "due date updated" notification.
             </Typography>
           </Flex>
@@ -452,6 +467,11 @@ function EmployeePicker({
   const currentPage = Math.min(page, pageCount);
   const pageRows = tableRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   useEffect(() => setPage(1), [tableQuery, tableFilter, pageSize]);
+  // The New / Already assigned filter is only offered while both kinds are in the list.
+  const canFilter = newCount > 0 && assignedCount > 0;
+  useEffect(() => {
+    if (!canFilter) setTableFilter('all');
+  }, [canFilter]);
 
   useEffect(() => {
     const term = q.trim();
@@ -511,58 +531,79 @@ function EmployeePicker({
   return (
     <Flex direction="column" alignItems="stretch" gap={5}>
       {!disabled && (
-        <Flex gap={6} wrap="wrap" alignItems="flex-start">
-          <Box style={{ flex: '1 1 260px' }}>
-            <Typography fontWeight="bold" tag="p">Upload a list</Typography>
-            <Typography variant="pi" textColor="neutral600" tag="p" marginBottom={3}>
-              Excel or CSV with one email, employee code or employee ID per row in the first column.
-            </Typography>
+        <Box padding={4} hasRadius background="neutral100">
+          <Flex gap={3} alignItems="flex-start" wrap="wrap">
+            <Box style={{ flex: '1 1 320px', position: 'relative' }}>
+              <Searchbar
+                name="employee"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onClear={() => setQ('')}
+                clearLabel="Clear"
+                placeholder="Add an employee: type a name, email or employee code"
+              >
+                Search employees
+              </Searchbar>
+              {q.trim().length >= 2 && (
+                <Box
+                  marginTop={1}
+                  hasRadius
+                  background="neutral0"
+                  shadow="popupShadow"
+                  borderColor="neutral150"
+                  borderStyle="solid"
+                  borderWidth="1px"
+                  style={{ position: 'absolute', left: 0, right: 0, zIndex: 3, maxHeight: 300, overflowY: 'auto' }}
+                >
+                  {searching ? (
+                    <Flex justifyContent="center" padding={4}>
+                      <Loader small>Searching…</Loader>
+                    </Flex>
+                  ) : results.length === 0 ? (
+                    <Box padding={4}>
+                      <Typography textColor="neutral600">No active employee of this company matches.</Typography>
+                    </Box>
+                  ) : (
+                    results.map((u) => (
+                      <Flex
+                        key={u.id}
+                        justifyContent="space-between"
+                        alignItems="center"
+                        gap={3}
+                        paddingTop={3}
+                        paddingBottom={3}
+                        paddingLeft={4}
+                        paddingRight={4}
+                        style={{ borderBottom: '1px solid #f0f0f5' }}
+                      >
+                        <Flex direction="column" alignItems="flex-start" style={{ minWidth: 0 }}>
+                          <Typography fontWeight="bold" ellipsis>{employeeLabel(u)}</Typography>
+                          <Typography variant="pi" textColor="neutral600" ellipsis>
+                            {[employeeCode(u), u.department, u.email].filter(Boolean).join(' · ')}
+                          </Typography>
+                        </Flex>
+                        {selectedIds.has(u.id) ? (
+                          <Badge variant="success">Added</Badge>
+                        ) : (
+                          <Button size="S" variant="secondary" startIcon={<Plus />} onClick={() => add([u])}>
+                            Add
+                          </Button>
+                        )}
+                      </Flex>
+                    ))
+                  )}
+                </Box>
+              )}
+            </Box>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={onFile} />
-            <Button variant="secondary" startIcon={<Upload />} loading={importing} onClick={() => fileRef.current?.click()}>
+            <Button size="L" variant="secondary" startIcon={<Upload />} loading={importing} onClick={() => fileRef.current?.click()}>
               Upload Excel / CSV
             </Button>
-          </Box>
-          <Box style={{ flex: '1 1 300px' }}>
-            <Typography fontWeight="bold" tag="p">Or search for an employee</Typography>
-            <Typography variant="pi" textColor="neutral600" tag="p" marginBottom={3}>
-              Type at least 2 letters of a name, email or employee code.
-            </Typography>
-            <Searchbar name="employee" value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} clearLabel="Clear" placeholder="e.g. Ramesh or 10234">
-              Search employees
-            </Searchbar>
-            {q.trim().length >= 2 && (
-              <Box marginTop={2} hasRadius borderColor="neutral200" borderStyle="solid" borderWidth="1px" style={{ maxHeight: 240, overflowY: 'auto' }}>
-                {searching ? (
-                  <Flex justifyContent="center" padding={3}>
-                    <Loader small>Searching…</Loader>
-                  </Flex>
-                ) : results.length === 0 ? (
-                  <Box padding={3}>
-                    <Typography textColor="neutral600">No active employee of this company matches.</Typography>
-                  </Box>
-                ) : (
-                  results.map((u) => (
-                    <Flex key={u.id} justifyContent="space-between" gap={3} padding={3} style={{ borderBottom: '1px solid #f0f0f5' }}>
-                      <Flex direction="column" alignItems="flex-start">
-                        <Typography fontWeight="bold">{employeeLabel(u)}</Typography>
-                        <Typography variant="pi" textColor="neutral600">
-                          {[employeeCode(u), u.department, u.email].filter(Boolean).join(' · ')}
-                        </Typography>
-                      </Flex>
-                      {selectedIds.has(u.id) ? (
-                        <Badge variant="success">Added</Badge>
-                      ) : (
-                        <Button size="S" variant="secondary" startIcon={<Plus />} onClick={() => add([u])}>
-                          Add
-                        </Button>
-                      )}
-                    </Flex>
-                  ))
-                )}
-              </Box>
-            )}
-          </Box>
-        </Flex>
+          </Flex>
+          <Typography variant="pi" textColor="neutral600" tag="p" marginTop={2}>
+            Have a long list? Upload an Excel or CSV file with one email, employee code or employee ID per row in the first column.
+          </Typography>
+        </Box>
       )}
 
       {uploads.map((upload) => (
@@ -579,38 +620,39 @@ function EmployeePicker({
       ))}
 
       <Box>
-        <Flex justifyContent="space-between" alignItems="center" marginBottom={2} gap={3} wrap="wrap">
+        <Flex justifyContent="space-between" alignItems="center" marginBottom={3} gap={3} wrap="wrap">
           <Flex gap={3} alignItems="center" wrap="wrap">
-            <Typography fontWeight="bold">{`Selected employees (${users.length})`}</Typography>
-            {newCount > 0 && <Badge variant="primary">{`${newCount} new`}</Badge>}
-            {assignedCount > 0 && <Badge>{`${assignedCount} already assigned`}</Badge>}
+            <Typography variant="omega" fontWeight="bold">{`Selected employees (${users.length})`}</Typography>
+            {canFilter ? (
+              <ChoiceCards
+                compact
+                items={[
+                  { value: 'all', label: `All ${users.length}` },
+                  { value: 'new', label: `New ${newCount}` },
+                  { value: 'assigned', label: `Already assigned ${assignedCount}` },
+                ]}
+                value={tableFilter}
+                onChange={setTableFilter}
+              />
+            ) : (
+              newCount > 0 && assignedIds.size > 0 && <Badge variant="primary">{`${newCount} new`}</Badge>
+            )}
           </Flex>
           {!disabled && users.length > 0 && <TextButton onClick={() => onChange([])}>Remove all</TextButton>}
         </Flex>
         {users.length > 10 && (
-          <Flex gap={3} wrap="wrap" alignItems="flex-end" marginBottom={3}>
-            <Box style={{ flex: '2 1 260px' }}>
-              <Searchbar
-                name="selected-employee-search"
-                value={tableQuery}
-                onChange={(e) => setTableQuery(e.target.value)}
-                onClear={() => setTableQuery('')}
-                clearLabel="Clear"
-                placeholder="Find in the selected employees: name, email, code or department"
-              >
-                Find selected employee
-              </Searchbar>
-            </Box>
-            {newCount > 0 && assignedCount > 0 && (
-              <Box style={{ flex: '0 1 220px' }}>
-                <SingleSelect aria-label="Show" size="S" value={tableFilter} onChange={(v) => setTableFilter(String(v))}>
-                  <SingleSelectOption value="all">{`All (${users.length})`}</SingleSelectOption>
-                  <SingleSelectOption value="new">{`New (${newCount})`}</SingleSelectOption>
-                  <SingleSelectOption value="assigned">{`Already assigned (${assignedCount})`}</SingleSelectOption>
-                </SingleSelect>
-              </Box>
-            )}
-          </Flex>
+          <Box marginBottom={3}>
+            <Searchbar
+              name="selected-employee-search"
+              value={tableQuery}
+              onChange={(e) => setTableQuery(e.target.value)}
+              onClear={() => setTableQuery('')}
+              clearLabel="Clear"
+              placeholder="Find in the selected employees: name, email, code or department"
+            >
+              Find selected employee
+            </Searchbar>
+          </Box>
         )}
         {users.length === 0 ? (
           <Box padding={4} hasRadius background="neutral100">
@@ -742,6 +784,172 @@ function EmployeePicker({
   );
 }
 
+/** One step of the form: a numbered circle (a tick once the step is complete), title and help text. */
+function StepCard({ number, title, description, done, children }) {
+  return (
+    <Box background="neutral0" hasRadius shadow="tableShadow" marginBottom={5}>
+      <Flex gap={4} alignItems="center" paddingTop={5} paddingBottom={5} paddingLeft={6} paddingRight={6}>
+        <Flex
+          justifyContent="center"
+          alignItems="center"
+          background={done ? 'success600' : 'primary600'}
+          style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }}
+        >
+          {done ? (
+            <Check fill="neutral0" width="14px" height="14px" />
+          ) : (
+            <Typography fontWeight="bold" textColor="neutral0">
+              {number}
+            </Typography>
+          )}
+        </Flex>
+        <Flex direction="column" alignItems="flex-start" gap={1}>
+          <Typography variant="delta" tag="h2">
+            {title}
+          </Typography>
+          {description && (
+            <Typography variant="pi" textColor="neutral600">
+              {description}
+            </Typography>
+          )}
+        </Flex>
+      </Flex>
+      <Divider />
+      <Box padding={6}>{children}</Box>
+    </Box>
+  );
+}
+
+/** Label + value line of the summary panel. */
+function SummaryRow({ icon, label, children }) {
+  return (
+    <Flex gap={3} alignItems="flex-start">
+      <Flex
+        justifyContent="center"
+        alignItems="center"
+        background="neutral100"
+        color="neutral600"
+        hasRadius
+        style={{ width: 32, height: 32, flexShrink: 0 }}
+      >
+        {icon}
+      </Flex>
+      <Flex direction="column" alignItems="flex-start" gap={1} style={{ minWidth: 0 }}>
+        <Typography variant="sigma" textColor="neutral600">
+          {label}
+        </Typography>
+        {children}
+      </Flex>
+    </Flex>
+  );
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const names = (list) => (list.length > 3 ? `${list.slice(0, 3).join(', ')} +${list.length - 3} more` : list.join(', '));
+
+/**
+ * What saving will do, in plain words — shown in the summary panel and the confirm dialog.
+ * kind: add (gets the course + notification), remove (loses it + is told), date, info.
+ */
+function listChanges({ isNew, form, saved, draft, courseItems, showMoveExisting }) {
+  const changes = [];
+  const unitWord = form.targetType === 'Location' ? 'work location' : 'department';
+
+  if (isNew) {
+    if (!form.courseDocumentIds.length || !form.targetType) return changes;
+    if (form.targetType === 'Individual') {
+      if (form.users.length) changes.push({ kind: 'add', text: `${plural(form.users.length, 'employee')} get the course and a notification.` });
+    } else if (draft.targets.length) {
+      changes.push({ kind: 'add', text: `Everyone in ${plural(draft.targets.length, unitWord)} gets the course and a notification.` });
+    }
+    return changes;
+  }
+
+  const label = (id) => courseItems.find((c) => c.value === id)?.label || 'A course';
+  const savedCourseIds = (saved.courses || []).map((c) => c.documentId);
+  const addedCourses = form.courseDocumentIds.filter((id) => !savedCourseIds.includes(id));
+  const removedCourses = savedCourseIds.filter((id) => !form.courseDocumentIds.includes(id));
+  if (addedCourses.length) {
+    changes.push({ kind: 'add', text: `${names(addedCourses.map(label))} added: learners get it and a notification.` });
+  }
+  if (removedCourses.length) {
+    changes.push({
+      kind: 'remove',
+      text: `${names(removedCourses.map((id) => saved.courses.find((c) => c.documentId === id)?.title || 'A course'))} removed: learners are told they no longer have it.`,
+    });
+  }
+
+  if (form.targetType !== saved.targetType) {
+    changes.push({
+      kind: 'info',
+      text: `Learners change from ${describeTarget(saved)} to ${describeTarget(draft)}. New learners are notified; learners no longer included are told.`,
+    });
+  } else if (form.targetType === 'Individual') {
+    const before = new Set((saved.users || []).map((u) => u.id));
+    const now = new Set(form.users.map((u) => u.id));
+    const added = [...now].filter((id) => !before.has(id)).length;
+    const removed = [...before].filter((id) => !now.has(id)).length;
+    if (added) changes.push({ kind: 'add', text: `${plural(added, 'employee')} added: they get the course and a notification.` });
+    if (removed) changes.push({ kind: 'remove', text: `${plural(removed, 'employee')} removed: they are told they no longer have the course.` });
+  } else {
+    const before = saved.targets || [];
+    const now = draft.targets;
+    const added = now.filter((t) => !before.some((b) => b.documentId === t.documentId)).map((t) => t.name);
+    const removed = before.filter((b) => !now.some((t) => t.documentId === b.documentId)).map((t) => t.name);
+    if (added.length) changes.push({ kind: 'add', text: `${names(added)} added: everyone there gets the course and a notification.` });
+    if (removed.length) changes.push({ kind: 'remove', text: `${names(removed)} removed: those learners are told they no longer have the course.` });
+  }
+
+  if (showMoveExisting) {
+    changes.push(
+      form.updateExistingDueDate
+        ? { kind: 'date', text: `Due date moves to ${formatDay(form.dueDate)} for everyone already assigned. They are notified.` }
+        : { kind: 'date', text: `Learners added from now on get ${formatDay(form.dueDate)}. Learners already assigned keep their date.` }
+    );
+  }
+  return changes;
+}
+
+const CHANGE_STYLE = {
+  add: { icon: <Plus />, background: 'success100', color: 'success600' },
+  remove: { icon: <Minus />, background: 'danger100', color: 'danger600' },
+  date: { icon: <Calendar />, background: 'primary100', color: 'primary600' },
+  info: { icon: <Bell />, background: 'warning100', color: 'warning600' },
+};
+
+function ChangeList({ changes, emptyText, variant = 'pi' }) {
+  if (!changes.length) {
+    return (
+      <Typography variant={variant} textColor="neutral600">
+        {emptyText}
+      </Typography>
+    );
+  }
+  return (
+    <Flex direction="column" alignItems="stretch" gap={3}>
+      {changes.map((c) => {
+        const style = CHANGE_STYLE[c.kind];
+        return (
+          <Flex key={c.text} gap={3} alignItems="flex-start">
+            <Flex
+              justifyContent="center"
+              alignItems="center"
+              background={style.background}
+              color={style.color}
+              style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0 }}
+            >
+              {React.cloneElement(style.icon, { width: '12px', height: '12px' })}
+            </Flex>
+            <Typography variant={variant} textColor="neutral800">
+              {c.text}
+            </Typography>
+          </Flex>
+        );
+      })}
+    </Flex>
+  );
+}
+
 export default function AssignmentEditor() {
   const { documentId } = useParams();
   const isNew = !documentId;
@@ -861,9 +1069,9 @@ export default function AssignmentEditor() {
   // Courses saved on the assignment: the ones learner progress exists for.
   const savedCourses = (saved?.courses || []).map((c) => ({ value: c.documentId, label: c.title }));
   const assignedIds = savedUserIds(saved);
-  // "Move the due date for learners already assigned" only matters when who is assigned changes.
-  const selectionChanged = !!saved && selectionKey(form) !== selectionKey(toForm(saved));
-  const showMoveExisting = !isNew && !readOnly && dueChanged && selectionChanged;
+  // Whenever the date changes the admin chooses: move it for learners already assigned, or only for
+  // learners added later. (Department / Location learners have no per-learner pencil, so this is the only way.)
+  const showMoveExisting = !isNew && !readOnly && dueChanged;
 
   const draft = {
     targetType: form.targetType,
@@ -914,6 +1122,16 @@ export default function AssignmentEditor() {
     }
   };
 
+  const step1Done = !!form.companyDocumentId && form.courseDocumentIds.length > 0 && !!form.dueDate;
+  const step2Done =
+    (form.targetType === 'Individual' && form.users.length > 0) ||
+    (form.targetType === 'Department' && form.departmentDocumentIds.length > 0) ||
+    (form.targetType === 'Location' && form.workLocationDocumentIds.length > 0);
+  const changes = listChanges({ isNew, form, saved, draft, courseItems, showMoveExisting });
+  const canSave = !readOnly && (isNew || dirty);
+  const companyName = company?.name || saved?.company?.name || '';
+  const status = isNew ? null : saved?.isLive ? <Badge variant="success">Live</Badge> : <Badge>Not sent yet</Badge>;
+
   return (
     <Page.Main>
       <Page.Title>{isNew ? 'Assign a course' : 'Edit assignment'}</Page.Title>
@@ -924,12 +1142,20 @@ export default function AssignmentEditor() {
           </TextButton>
         }
         title={isNew ? 'Assign a course' : 'Edit assignment'}
+        secondaryAction={status}
         subtitle={
           isNew
-            ? 'Four quick steps. Learners get the course and a notification as soon as you assign it.'
+            ? 'Choose the course and deadline, then who should take it. Learners are notified as soon as you assign it.'
             : saved?.isLive
-              ? 'Changes apply as soon as you save. Newly added learners are notified.'
+              ? 'Changes go live as soon as you save. Learners are notified about what changes for them.'
               : 'This assignment has not been sent to learners yet.'
+        }
+        primaryAction={
+          !readOnly && (
+            <Button startIcon={<Check />} onClick={askToSave} disabled={!canSave}>
+              {isNew ? 'Assign course' : 'Save changes'}
+            </Button>
+          )
         }
       />
       <Layouts.Content>
@@ -939,187 +1165,259 @@ export default function AssignmentEditor() {
           </Callout>
         )}
 
-        <Section title="1. Company" subtitle="Courses, departments and employees are filtered to this company.">
-          {isNew ? (
-            <ChoiceCards
-              items={options.companies.map((c) => ({ value: c.documentId, label: c.name }))}
-              value={form.companyDocumentId}
-              disabled={readOnly}
-              onChange={(v) =>
-                set({
-                  companyDocumentId: v,
-                  departmentDocumentIds: [],
-                  workLocationDocumentIds: [],
-                  users: [],
-                })
-              }
-            />
-          ) : (
-            <Typography fontWeight="bold">{company?.name || saved?.company?.name || '—'}</Typography>
-          )}
-          <ErrorText>{errors.company}</ErrorText>
-        </Section>
-
-        <Section title="2. Course" subtitle="Only published courses can be assigned. Pick more than one to assign them together.">
-          {!companyId ? (
-            <Typography textColor="neutral600">Choose the company first.</Typography>
-          ) : courses === null ? (
-            <Loader small>Loading courses…</Loader>
-          ) : courseItems.length === 0 ? (
-            <Typography textColor="neutral600">
-              {`No published course is available for ${company?.name || 'this company'} yet. Publish a course first.`}
-            </Typography>
-          ) : (
-            <Field.Root name="courses" error={errors.courses}>
-              <Field.Label>Select courses</Field.Label>
-              <MultiSelect
-                placeholder="Select one or more courses"
-                value={form.courseDocumentIds}
-                onChange={(values) => set({ courseDocumentIds: values })}
-                onClear={() => set({ courseDocumentIds: [] })}
-                disabled={readOnly}
-                withTags
-              >
-                {courseItems.map((item) => (
-                  <MultiSelectOption key={item.value} value={item.value}>
-                    {item.label} {item.hint ? `(${item.hint})` : ''}
-                  </MultiSelectOption>
-                ))}
-              </MultiSelect>
-              <Field.Error />
-            </Field.Root>
-          )}
-          <ErrorText>{errors.courses}</ErrorText>
-        </Section>
-
-        <Section title="3. Who should take it?">
-          <ChoiceCards
-            items={Object.entries(TARGETS).map(([value, t]) => ({
-              value,
-              label: t.label,
-              description: t.description,
-              icon: TARGET_ICONS[value],
-            }))}
-            value={form.targetType}
-            disabled={readOnly || !companyId}
-            onChange={(v) => set({ targetType: v })}
-          />
-          <ErrorText>{errors.targetType}</ErrorText>
-
-          {form.targetType && companyId && (
-            <Box marginTop={6}>
-              {form.targetType === 'Department' && (
-                <>
-                  <CheckList
-                    items={departments.map((d) => ({ value: d.documentId, label: d.name }))}
-                    value={form.departmentDocumentIds}
-                    onChange={(v) => set({ departmentDocumentIds: v })}
-                    disabled={readOnly}
-                    searchPlaceholder="Search departments"
-                    emptyText="This company has no departments yet."
-                  />
-                  <ErrorText>{errors.departments}</ErrorText>
-                </>
-              )}
-              {form.targetType === 'Location' && (
-                <>
-                  <CheckList
-                    items={locations.map((l) => ({ value: l.documentId, label: l.name }))}
-                    value={form.workLocationDocumentIds}
-                    onChange={(v) => set({ workLocationDocumentIds: v })}
-                    disabled={readOnly}
-                    searchPlaceholder="Search work locations"
-                    emptyText="This company has no work locations yet."
-                  />
-                  <ErrorText>{errors.workLocations}</ErrorText>
-                </>
-              )}
-              {form.targetType === 'Individual' && (
-                <>
-                  <EmployeePicker
-                    companyDocumentId={companyId}
-                    users={form.users}
-                    onChange={(users) => set({ users })}
-                    disabled={readOnly}
-                    assignedIds={assignedIds}
-                    progress={progress}
-                    courses={savedCourses}
-                    newDueDate={form.dueDate}
-                    onEditDueDate={saved?.isLive && perms.canEdit ? setEditingDue : undefined}
-                  />
-                  <ErrorText>{errors.users}</ErrorText>
-                </>
-              )}
-            </Box>
-          )}
-        </Section>
-
-        <Section title="4. Due date" subtitle="The day learners should finish the course by.">
-          <Grid.Root gap={6}>
-            <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-              <Field.Root name="dueDate" error={errors.dueDate}>
-                <Field.Label>{isNew ? 'Complete by' : 'Complete by (for newly added learners)'}</Field.Label>
-                <DatePicker
-                  value={toPickerDate(form.dueDate)}
-                  onChange={(d) => set({ dueDate: toISODate(d) })}
-                  onClear={() => set({ dueDate: '' })}
-                  minDate={toPickerDate(toISODate(new Date()))}
-                  disabled={readOnly}
-                  clearLabel="Clear date"
-                />
-                <Field.Error />
-              </Field.Root>
-            </Grid.Item>
-            {!isNew && (
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-                {showMoveExisting ? (
-                  <Box paddingTop={6}>
-                    <Checkbox checked={form.updateExistingDueDate} onCheckedChange={(v) => set({ updateExistingDueDate: !!v })}>
-                      {`Also move the due date for learners already assigned (was ${formatDay(saved.dueDate)})`}
-                    </Checkbox>
+        <Grid.Root gap={6}>
+          <Grid.Item col={8} s={12} direction="column" alignItems="stretch">
+            <StepCard number={1} title="Course and deadline" description="What learners should complete, and by when." done={step1Done}>
+              <Grid.Root gap={5}>
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  <Field.Root name="company" error={errors.company}>
+                    <Field.Label>Company</Field.Label>
+                    {isNew ? (
+                      <ChoiceCards
+                        compact
+                        items={options.companies.map((c) => ({ value: c.documentId, label: c.name, icon: <House /> }))}
+                        value={form.companyDocumentId}
+                        disabled={readOnly}
+                        onChange={(v) => set({ companyDocumentId: v, departmentDocumentIds: [], workLocationDocumentIds: [], users: [] })}
+                      />
+                    ) : (
+                      <Flex
+                        gap={2}
+                        alignItems="center"
+                        hasRadius
+                        background="neutral100"
+                        borderColor="neutral200"
+                        borderStyle="solid"
+                        borderWidth="1px"
+                        paddingLeft={4}
+                        paddingRight={4}
+                        style={{ height: 40 }}
+                      >
+                        <Lock width="12px" height="12px" fill="neutral500" />
+                        <Typography fontWeight="bold">{companyName || '—'}</Typography>
+                      </Flex>
+                    )}
                     <Typography variant="pi" textColor="neutral600" tag="p" marginTop={1}>
-                      Leave unticked to give the new date only to learners added now.
+                      {isNew ? 'Courses and employees are filtered to this company.' : 'The company stays fixed once assigned.'}
                     </Typography>
-                  </Box>
-                ) : (
-                  form.targetType === 'Individual' &&
-                  progress.length > 0 && (
-                    <Box paddingTop={6}>
-                      <Typography variant="pi" textColor="neutral600">
-                        To change the date of someone already assigned, use the pencil in the Due date column above.
-                      </Typography>
-                    </Box>
-                  )
-                )}
-              </Grid.Item>
-            )}
-          </Grid.Root>
-        </Section>
+                    <ErrorText>{errors.company}</ErrorText>
+                  </Field.Root>
+                </Grid.Item>
 
-        {!readOnly && (
-          <Flex justifyContent="flex-end">
-            <Button size="L" startIcon={<Check />} onClick={askToSave}>
-              {isNew ? 'Assign course' : 'Save changes'}
-            </Button>
-          </Flex>
-        )}
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  <Field.Root name="dueDate" error={errors.dueDate}>
+                    <Field.Label>Complete by</Field.Label>
+                    <DatePicker
+                      value={toPickerDate(form.dueDate)}
+                      onChange={(d) => set({ dueDate: toISODate(d) })}
+                      onClear={() => set({ dueDate: '' })}
+                      minDate={toPickerDate(toISODate(new Date()))}
+                      disabled={readOnly}
+                      clearLabel="Clear date"
+                    />
+                    <Typography variant="pi" textColor="neutral600" tag="p" marginTop={1}>
+                      {isNew
+                        ? 'Learners should finish the course by this day.'
+                        : form.targetType === 'Individual' && progress.length > 0
+                          ? "For learners added from now on. To change one person's date, use the pencil in the list below."
+                          : 'For learners added from now on.'}
+                    </Typography>
+                    <Field.Error />
+                  </Field.Root>
+                </Grid.Item>
+
+                <Grid.Item col={12} direction="column" alignItems="stretch">
+                  <Field.Root name="courses" error={errors.courses}>
+                    <Field.Label>Courses</Field.Label>
+                    {!companyId ? (
+                      <Box padding={4} hasRadius background="neutral100">
+                        <Typography textColor="neutral600">Choose the company first.</Typography>
+                      </Box>
+                    ) : courses === null ? (
+                      <Loader small>Loading courses…</Loader>
+                    ) : courseItems.length === 0 ? (
+                      <Box padding={4} hasRadius background="neutral100">
+                        <Typography textColor="neutral600">
+                          {`No published course is available for ${company?.name || 'this company'} yet. Publish a course first.`}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <MultiSelect
+                        placeholder="Select one or more courses"
+                        value={form.courseDocumentIds}
+                        onChange={(values) => set({ courseDocumentIds: values })}
+                        onClear={() => set({ courseDocumentIds: [] })}
+                        disabled={readOnly}
+                        withTags
+                      >
+                        {courseItems.map((item) => (
+                          <MultiSelectOption key={item.value} value={item.value}>
+                            {item.label} {item.hint ? `(${item.hint})` : ''}
+                          </MultiSelectOption>
+                        ))}
+                      </MultiSelect>
+                    )}
+                    <Typography variant="pi" textColor="neutral600" tag="p" marginTop={1}>
+                      Only published courses can be assigned. Pick more than one to assign them together.
+                    </Typography>
+                    <ErrorText>{errors.courses}</ErrorText>
+                  </Field.Root>
+                </Grid.Item>
+
+                {showMoveExisting && (
+                  <Grid.Item col={12} direction="column" alignItems="stretch">
+                    <Box padding={4} hasRadius background="primary100" borderColor="primary200" borderStyle="solid" borderWidth="1px">
+                      <Typography fontWeight="bold" tag="p" marginBottom={2}>
+                        {`You changed the due date (it was ${formatDay(saved.dueDate)}). Who should get the new date?`}
+                      </Typography>
+                      <ChoiceCards
+                        minWidth={220}
+                        items={[
+                          { value: 'new', label: 'Only learners added from now on', description: 'Everyone already assigned keeps their date.' },
+                          { value: 'all', label: 'Everyone already assigned too', description: `All current learners move to ${formatDay(form.dueDate)}.` },
+                        ]}
+                        value={form.updateExistingDueDate ? 'all' : 'new'}
+                        onChange={(v) => set({ updateExistingDueDate: v === 'all' })}
+                      />
+                    </Box>
+                  </Grid.Item>
+                )}
+              </Grid.Root>
+            </StepCard>
+
+            <StepCard number={2} title="Learners" description="Choose who should take the course." done={step2Done}>
+              <ChoiceCards
+                minWidth={200}
+                items={Object.entries(TARGETS).map(([value, t]) => ({
+                  value,
+                  label: t.label,
+                  description: t.description,
+                  icon: TARGET_ICONS[value],
+                }))}
+                value={form.targetType}
+                disabled={readOnly || !companyId}
+                onChange={(v) => set({ targetType: v })}
+              />
+              {!companyId && (
+                <Typography variant="pi" textColor="neutral600" tag="p" marginTop={2}>
+                  Choose the company first.
+                </Typography>
+              )}
+              <ErrorText>{errors.targetType}</ErrorText>
+
+              {form.targetType && companyId && (
+                <Box marginTop={6}>
+                  {form.targetType === 'Department' && (
+                    <>
+                      <CheckList
+                        items={departments.map((d) => ({ value: d.documentId, label: d.name }))}
+                        value={form.departmentDocumentIds}
+                        onChange={(v) => set({ departmentDocumentIds: v })}
+                        disabled={readOnly}
+                        searchPlaceholder="Search departments"
+                        emptyText="This company has no departments yet."
+                      />
+                      <ErrorText>{errors.departments}</ErrorText>
+                    </>
+                  )}
+                  {form.targetType === 'Location' && (
+                    <>
+                      <CheckList
+                        items={locations.map((l) => ({ value: l.documentId, label: l.name }))}
+                        value={form.workLocationDocumentIds}
+                        onChange={(v) => set({ workLocationDocumentIds: v })}
+                        disabled={readOnly}
+                        searchPlaceholder="Search work locations"
+                        emptyText="This company has no work locations yet."
+                      />
+                      <ErrorText>{errors.workLocations}</ErrorText>
+                    </>
+                  )}
+                  {form.targetType === 'Individual' && (
+                    <>
+                      <EmployeePicker
+                        companyDocumentId={companyId}
+                        users={form.users}
+                        onChange={(users) => set({ users })}
+                        disabled={readOnly}
+                        assignedIds={assignedIds}
+                        progress={progress}
+                        courses={savedCourses}
+                        newDueDate={form.dueDate}
+                        onEditDueDate={saved?.isLive && perms.canEdit ? setEditingDue : undefined}
+                      />
+                      <ErrorText>{errors.users}</ErrorText>
+                    </>
+                  )}
+                </Box>
+              )}
+            </StepCard>
+          </Grid.Item>
+
+          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
+            {/* Stays in view while the learner list is scrolled. */}
+            <Box background="neutral0" hasRadius shadow="tableShadow" style={{ position: 'sticky', top: 96 }}>
+              <Flex justifyContent="space-between" alignItems="center" paddingTop={5} paddingBottom={5} paddingLeft={6} paddingRight={6}>
+                <Typography variant="delta" tag="h2">
+                  Summary
+                </Typography>
+                {status}
+              </Flex>
+              <Divider />
+              <Flex direction="column" alignItems="stretch" gap={4} padding={6}>
+                <SummaryRow icon={<House />} label="Company">
+                  <Typography>{companyName || '—'}</Typography>
+                </SummaryRow>
+                <SummaryRow icon={<Book />} label={chosenCourses.length > 1 ? `Courses (${chosenCourses.length})` : 'Course'}>
+                  {chosenCourses.length ? (
+                    chosenCourses.map((c) => <Typography key={c.value}>{c.hint ? `${c.label} (${c.hint})` : c.label}</Typography>)
+                  ) : (
+                    <Typography textColor="neutral500">Not chosen yet</Typography>
+                  )}
+                </SummaryRow>
+                <SummaryRow icon={<User />} label="Learners">
+                  <Typography textColor={step2Done ? 'neutral800' : 'neutral500'}>{step2Done ? describeTarget(draft) : 'Not chosen yet'}</Typography>
+                </SummaryRow>
+                <SummaryRow icon={<Calendar />} label="Complete by">
+                  <Typography textColor={form.dueDate ? 'neutral800' : 'neutral500'}>{form.dueDate ? formatDay(form.dueDate) : 'Not set'}</Typography>
+                </SummaryRow>
+              </Flex>
+              <Divider />
+              <Box padding={6}>
+                <Typography variant="sigma" textColor="neutral600" tag="p" marginBottom={3}>
+                  {isNew ? 'When you assign' : 'When you save'}
+                </Typography>
+                <ChangeList
+                  changes={changes}
+                  emptyText={isNew ? 'Complete both steps to see who gets the course.' : 'Nothing has changed yet.'}
+                />
+                {!readOnly && (
+                  <Box marginTop={5}>
+                    <Button fullWidth size="L" startIcon={<Check />} onClick={askToSave} disabled={!canSave}>
+                      {isNew ? 'Assign course' : 'Save changes'}
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          </Grid.Item>
+        </Grid.Root>
       </Layouts.Content>
 
       <Dialog.Root open={confirming} onOpenChange={(o) => !o && !saving && setConfirming(false)}>
         <Dialog.Content>
           <Dialog.Header>{isNew ? 'Assign this course?' : 'Save changes?'}</Dialog.Header>
           <Dialog.Body>
-            <Flex direction="column" alignItems="stretch" gap={3}>
-              <Typography>
-                <strong>{chosenCourses.map((c) => c.label).join(', ')}</strong>
-              </Typography>
-              <Typography>{`To: ${describeTarget(draft)} at ${company?.name || saved?.company?.name || ''}`}</Typography>
-              <Typography>{`Due: ${formatDay(form.dueDate)}`}</Typography>
-              <Typography variant="pi" textColor="neutral600">
-                {isNew
-                  ? 'Learners get the course and a notification right away.'
-                  : 'Learners added now get the course and a notification.'}
-              </Typography>
+            <Flex direction="column" alignItems="stretch" gap={4} width="100%">
+              <Box padding={4} hasRadius background="neutral100">
+                <Typography variant="epsilon" fontWeight="bold" tag="p">
+                  {chosenCourses.map((c) => c.label).join(', ')}
+                </Typography>
+                <Typography variant="omega" textColor="neutral600" tag="p" marginTop={1}>
+                  {`${describeTarget(draft)} at ${companyName} · complete by ${formatDay(form.dueDate)}`}
+                </Typography>
+              </Box>
+              <ChangeList changes={changes} variant="omega" emptyText="Learners get the course and a notification." />
             </Flex>
           </Dialog.Body>
           <Dialog.Footer>

@@ -240,7 +240,8 @@ async function computeModuleStates(strapi, { course, userId, progress, language 
   const [submissions, offlineRecords] = await Promise.all([
     userId && course?.id
       ? strapi.db.query(QUIZ_SUBMISSION_UID).findMany({
-          where: { submitted_by: Number(userId), course: Number(course.id) },
+          // Published rows only: each submission also has a draft row, which would count every attempt twice.
+          where: { submitted_by: Number(userId), course: Number(course.id), publishedAt: { $notNull: true } },
           select: ['id', 'module_id', 'passed', 'score', 'attempt_number', 'submitted_at', 'review_status'],
           orderBy: { attempt_number: 'asc' },
         })
@@ -293,7 +294,8 @@ async function computeModuleStates(strapi, { course, userId, progress, language 
       // Score of an attempt under review is provisional (auto-graded part only): not shown / not a fail.
       const pendingReview = last?.review_status === 'Pending_review';
       state.quiz = {
-        attempts: subs.length,
+        // Attempt number of the latest submission (what the quiz itself counts), else the number of rows.
+        attempts: Math.max(subs.length, ...subs.map((s) => Number(s.attempt_number) || 0)),
         max_attempt: quizMaxAttempt(m.quiz),
         pass_mark: quizPassMark(course),
         passed,

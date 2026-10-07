@@ -431,7 +431,7 @@ export default function OfflineAssessments({ canSave }) {
         <Dialog.Content>
           <Dialog.Header>Remove completion?</Dialog.Header>
           <Dialog.Body icon={<WarningCircle fill="danger600" />}>
-            <Typography textAlign="center">
+            <Typography textAlign="center" variant="epsilon" textColor="neutral800">
               {`The proof for ${learnerName(removing?.user)} will be removed and "${removing?.module_title}" becomes incomplete again, so later modules lock for this learner.`}
             </Typography>
           </Dialog.Body>

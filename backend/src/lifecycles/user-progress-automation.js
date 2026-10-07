@@ -327,6 +327,20 @@ async function sendDueDateChangedNotifications(strapi, result, payload) {
   }
 }
 
+/** "Course Unassigned" for learners who no longer have the course through any assignment. */
+async function sendCourseUnassignedNotifications(strapi, { courseId, userIds }) {
+  if (!courseId || !userIds?.length) return;
+  const courseTitle = await resolveCourseTitleForNotification(strapi, courseId);
+  await notifyAssignmentUsersForCourse(strapi, {
+    type: 'course_unassigned',
+    title: 'Course Unassigned',
+    message: `"${courseTitle}" is no longer assigned to you.`,
+    rawCourseId: courseId,
+    userIds,
+    meta: { assignedBy: null },
+  });
+}
+
 function getUserId(user) {
   if (!user) return null;
   return user.id ?? user.documentId ?? user.document_id;
@@ -994,4 +1008,10 @@ async function processCourseAssignmentCreate(strapi, params, result) {
   }
 }
 
-module.exports = { registerUserProgressLifecycles, processCourseAssignmentCreate, sendDueDateChangedNotifications };
+module.exports = {
+  registerUserProgressLifecycles,
+  processCourseAssignmentCreate,
+  sendDueDateChangedNotifications,
+  sendCourseUnassignedNotifications,
+  getAssignedUserIds,
+};

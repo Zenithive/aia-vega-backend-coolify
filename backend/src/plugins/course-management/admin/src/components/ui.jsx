@@ -19,9 +19,9 @@ export function FormField({ name, label, hint, error, required, children, labelA
 }
 
 /** White card with a heading, used to break each step into digestible sections. */
-export function Section({ title, subtitle, actions, children, padding = 6 }) {
+export function Section({ title, subtitle, actions, children, padding = 6, ...boxProps }) {
   return (
-    <Box background="neutral0" hasRadius shadow="tableShadow" padding={padding} marginBottom={5}>
+    <Box background="neutral0" hasRadius shadow="tableShadow" padding={padding} marginBottom={5} {...boxProps}>
       {(title || actions) && (
         <Flex justifyContent="space-between" alignItems="flex-start" gap={4} marginBottom={5}>
           <Flex direction="column" alignItems="flex-start" gap={1}>
@@ -61,7 +61,11 @@ export function ConfirmDialog({ open, title, children, confirmLabel = 'Confirm',
       <Dialog.Content>
         <Dialog.Header>{title}</Dialog.Header>
         <Dialog.Body icon={<WarningCircle fill="danger600" />}>
-          <Box textAlign="center">{children}</Box>
+          <Box textAlign="center">
+            <Typography tag="div" variant="epsilon" textColor="neutral800">
+              {children}
+            </Typography>
+          </Box>
         </Dialog.Body>
         <Dialog.Footer>
           <Dialog.Cancel>

@@ -9,6 +9,9 @@
  * merge / validation in the content type lifecycle, and the user-progress automation
  * (progress rows, due dates, "Course Assigned" notifications, offline completion entries)
  * that runs when a published assignment row is written.
+ *
+ * Learners who lose a course through an edit or delete are handled here (releaseLearners):
+ * "Course Unassigned" and their due date is cleared, so a later re-add counts as a new assignment.
  */
 
 const { errors } = require('@strapi/utils');
@@ -206,6 +209,132 @@ module.exports = ({ strapi }) => {
       }));
   }
 
+  const automation = () => require('../../../../lifecycles/user-progress-automation');
+
+  /** Learners and courses (numeric ids) the live version of an assignment gives the course to right now. */
+  async function liveLearners(documentId) {
+    const live = await strapi.db.query(ASSIGNMENT_UID).findOne({
+      where: { documentId, publishedAt: { $notNull: true } },
+      select: ['id'],
+    });
+    if (!live) return { courseIds: [], userIds: [] };
+    const payload = await automation().getAssignedUserIds(strapi, live.id);
+    return { courseIds: payload?.courseIds || [], userIds: payload?.userIds || [] };
+  }
+
+  /**
+   * Department / Location assignments make the automation add one hidden Individual entry per
+   * learner (no course_version). Those keep giving access on their own, so the ones `row` (the
+   * assignment as it was) covered are removed — unless another live assignment still covers that
+   * learner for the course. On delete, `excludeDocumentId` leaves the deleted assignment out of
+   * that check; on update the saved (new) version counts.
+   */
+  async function pruneAutoEntries(row, { excludeDocumentId = null } = {}) {
+    const courseIds = (row.courses || []).map((c) => c.documentId);
+    if (!['Department', 'Location'].includes(row.assignment_target_type) || !courseIds.length) return 0;
+
+    const userFields = ['id', 'department', 'company', 'branch', 'working_location'];
+    const autoEntries = await strapi.db.query(ASSIGNMENT_UID).findMany({
+      where: {
+        assignment_target_type: 'Individual',
+        $or: [{ course_version: { $null: true } }, { course_version: '' }],
+        courses: { documentId: { $in: courseIds } },
+      },
+      select: ['documentId'],
+      populate: { individual_user: { select: userFields }, courses: { select: ['documentId'] } },
+    });
+    const others = await strapi.db.query(ASSIGNMENT_UID).findMany({
+      where: {
+        ...(excludeDocumentId ? { documentId: { $ne: excludeDocumentId } } : {}),
+        publishedAt: { $notNull: true },
+        course_version: { $notNull: true, $ne: '' },
+        courses: { documentId: { $in: courseIds } },
+      },
+      select: ['documentId', 'assignment_target_type'],
+      populate: {
+        courses: { select: ['documentId'] },
+        departments: { select: ['name'] },
+        work_locations: { select: ['name'] },
+        individual_user: { select: ['id'] },
+      },
+    });
+
+    const toDelete = new Set();
+    for (const entry of autoEntries || []) {
+      const users = entry.individual_user || [];
+      const entryCourses = (entry.courses || []).map((c) => c.documentId);
+      const ours = users.length > 0 && users.every((u) => assignmentCoversUser(row, u));
+      if (!ours) continue;
+      const stillCovered = users.some((u) =>
+        (others || []).some(
+          (o) => (o.courses || []).some((c) => entryCourses.includes(c.documentId)) && assignmentCoversUser(o, u)
+        )
+      );
+      if (!stillCovered) toDelete.add(entry.documentId);
+    }
+    for (const id of toDelete) {
+      await assignments().delete({ documentId: id });
+    }
+    return toDelete.size;
+  }
+
+  /**
+   * Of the learners an assignment used to give courses to, the ones no live assignment covers any
+   * more (removed from it, their department / location or the course taken off it, or it was
+   * deleted) get "Course Unassigned" and their due date is cleared. Progress is kept. Without a due
+   * date the automation treats them as newly assigned if they are added again later, so they then
+   * get the new due date and "Course Assigned".
+   */
+  async function releaseLearners({ courseIds, userIds }) {
+    const courses = [...new Set((courseIds || []).map(Number).filter(Boolean))];
+    const ids = [...new Set((userIds || []).map(Number).filter(Boolean))];
+    if (!courses.length || !ids.length) return 0;
+
+    const [users, live] = await Promise.all([
+      strapi.db.query(USER_UID).findMany({
+        where: { id: { $in: ids } },
+        select: ['id', 'department', 'company', 'branch', 'working_location'],
+      }),
+      strapi.db.query(ASSIGNMENT_UID).findMany({
+        where: { publishedAt: { $notNull: true }, courses: { id: { $in: courses } } },
+        select: ['documentId', 'assignment_target_type'],
+        populate: {
+          courses: { select: ['id'] },
+          departments: { select: ['name'] },
+          work_locations: { select: ['name'] },
+          individual_user: { select: ['id'] },
+        },
+      }),
+    ]);
+
+    let released = 0;
+    for (const courseId of courses) {
+      const covering = (live || []).filter((a) => (a.courses || []).some((c) => c.id === courseId));
+      const lost = (users || []).filter((u) => !covering.some((a) => assignmentCoversUser(a, u))).map((u) => u.id);
+      if (!lost.length) continue;
+
+      try {
+        await automation().sendCourseUnassignedNotifications(strapi, { courseId, userIds: lost });
+      } catch (err) {
+        strapi.log.warn(`[course-management] unassigned notification failed: ${err?.message || err}`);
+      }
+      const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
+        where: { course: { id: courseId }, user: { id: { $in: lost } } },
+        select: ['documentId'],
+      });
+      const progressIds = [...new Set((rows || []).map((r) => r.documentId).filter(Boolean))];
+      if (progressIds.length) {
+        // updateMany covers the draft and published row of each progress document, without lifecycles.
+        await strapi.db.query(USER_PROGRESS_UID).updateMany({
+          where: { documentId: { $in: progressIds } },
+          data: { due_date: null },
+        });
+      }
+      released += lost.length;
+    }
+    return released;
+  }
+
   async function findDraft(documentId) {
     return assignments().findOne({
       documentId,
@@ -303,67 +432,18 @@ module.exports = ({ strapi }) => {
 
     /**
      * Deletes an assignment, so its learners lose access to the course unless another
-     * assignment still gives it to them. Learner progress is kept.
-     *
-     * Department / Location assignments make the automation add one hidden Individual entry per
-     * learner (no course_version). Those keep giving access on their own, so the ones this
-     * assignment covers are removed too — unless another remaining assignment still covers
-     * that learner for the course.
+     * assignment still gives it to them (those who lose it are notified). Learner progress is kept.
      */
     async remove(documentId) {
       const row = await findDraft(documentId);
       if (!row) return null;
-      const courseIds = (row.courses || []).map((c) => c.documentId);
-      let removedEntries = 0;
-
-      if (['Department', 'Location'].includes(row.assignment_target_type) && courseIds.length) {
-        const userFields = ['id', 'department', 'company', 'branch', 'working_location'];
-        const autoEntries = await strapi.db.query(ASSIGNMENT_UID).findMany({
-          where: {
-            assignment_target_type: 'Individual',
-            $or: [{ course_version: { $null: true } }, { course_version: '' }],
-            courses: { documentId: { $in: courseIds } },
-          },
-          select: ['documentId'],
-          populate: { individual_user: { select: userFields }, courses: { select: ['documentId'] } },
-        });
-        const others = await strapi.db.query(ASSIGNMENT_UID).findMany({
-          where: {
-            documentId: { $ne: documentId },
-            publishedAt: { $notNull: true },
-            course_version: { $notNull: true, $ne: '' },
-            courses: { documentId: { $in: courseIds } },
-          },
-          select: ['documentId', 'assignment_target_type'],
-          populate: {
-            courses: { select: ['documentId'] },
-            departments: { select: ['name'] },
-            work_locations: { select: ['name'] },
-            individual_user: { select: ['id'] },
-          },
-        });
-
-        const toDelete = new Set();
-        for (const entry of autoEntries || []) {
-          const users = entry.individual_user || [];
-          const entryCourses = (entry.courses || []).map((c) => c.documentId);
-          const ours = users.length > 0 && users.every((u) => assignmentCoversUser(row, u));
-          if (!ours) continue;
-          const stillCovered = users.some((u) =>
-            (others || []).some(
-              (o) => (o.courses || []).some((c) => entryCourses.includes(c.documentId)) && assignmentCoversUser(o, u)
-            )
-          );
-          if (!stillCovered) toDelete.add(entry.documentId);
-        }
-        for (const id of toDelete) {
-          await assignments().delete({ documentId: id });
-          removedEntries += 1;
-        }
-      }
-
+      const before = await liveLearners(documentId);
+      const removedEntries = await pruneAutoEntries(row, { excludeDocumentId: documentId });
       await assignments().delete({ documentId });
-      strapi.log.info(`[course-management] assignment ${documentId} deleted (${removedEntries} per-learner entries removed)`);
+      const released = await releaseLearners(before);
+      strapi.log.info(
+        `[course-management] assignment ${documentId} deleted (${removedEntries} per-learner entries removed, ${released} learners unassigned)`
+      );
       return { data: { documentId, removedEntries } };
     },
 
@@ -430,8 +510,13 @@ module.exports = ({ strapi }) => {
       const existing = await findDraft(documentId);
       if (!existing) return null;
       const data = await toWriteData(input, existing);
+      // Learners added now are handled by the automation on publish; learners who drop out
+      // (removed, their department / location or a course taken off) are handled here once the new version is live.
+      const before = await liveLearners(documentId);
       await assignments().update({ documentId, data });
       await assignments().publish({ documentId });
+      await pruneAutoEntries(existing);
+      await releaseLearners(before);
       return this.get(documentId);
     },
 

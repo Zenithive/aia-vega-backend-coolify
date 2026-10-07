@@ -18,7 +18,7 @@ const {
   computeModuleStates,
   recomputeProgress,
 } = require("../../../utils/course-modules");
-const { REVIEW_STATUS, needsManualReview } = require("../../../utils/quiz-review");
+const { REVIEW_STATUS, DESCRIPTIVE_ANSWER_MAX_LENGTH, needsManualReview } = require("../../../utils/quiz-review");
 
 // ----------------------------------------------------------
 // ⭐ SCORE CALCULATION LOGIC (standalone – avoids controller
@@ -701,7 +701,11 @@ module.exports = createCoreController(
           if (questionType === 'Descriptive') {
             return {
               ...base,
-              user_answer_for_descriptive_question: a.user_answer_for_descriptive_question ?? '',
+              // Same limit as the schema (maxLength) and the quiz textarea; cut instead of failing the whole submission.
+              user_answer_for_descriptive_question: String(a.user_answer_for_descriptive_question ?? '').slice(
+                0,
+                DESCRIPTIVE_ANSWER_MAX_LENGTH
+              ),
             };
           }
           return {

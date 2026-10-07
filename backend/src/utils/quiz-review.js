@@ -24,6 +24,10 @@ const {
 const QUIZ_SUBMISSION_UID = 'api::quiz-submission.quiz-submission';
 const COURSE_UID = 'api::course.course';
 
+// Max characters of a learner's descriptive answer: quiz.answer.user_answer_for_descriptive_question maxLength
+// (the learner quiz textarea uses the same limit).
+const DESCRIPTIVE_ANSWER_MAX_LENGTH = 1300;
+
 const REVIEW_STATUS = {
   NOT_REQUIRED: 'Not_required',
   PENDING: 'Pending_review',
@@ -63,6 +67,10 @@ function scoreFromCorrectFlags(answers, quizQuestions) {
 /** Copy a stored answer component for re-saving (component rows are recreated on update). */
 function toAnswerData(answer) {
   const { id, __component, ...rest } = answer || {};
+  // Answers saved before the character limit (DESCRIPTIVE_ANSWER_MAX_LENGTH) would fail schema validation on this update.
+  if (typeof rest.user_answer_for_descriptive_question === 'string') {
+    rest.user_answer_for_descriptive_question = rest.user_answer_for_descriptive_question.slice(0, DESCRIPTIVE_ANSWER_MAX_LENGTH);
+  }
   return rest;
 }
 
@@ -216,6 +224,7 @@ async function notifyLearner(strapi, { submission, score, passed, quizModule }) 
 
 module.exports = {
   REVIEW_STATUS,
+  DESCRIPTIVE_ANSWER_MAX_LENGTH,
   isDescriptive,
   needsManualReview,
   isPendingReview,
