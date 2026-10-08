@@ -118,12 +118,13 @@ export default function LearningAnalyticsPage() {
     if (viewMode !== 'personal' || !employeeId) return;
     const fromData = Array.isArray(data?.courseProgress) ? data.courseProgress : [];
     if (fromData.length === 0) return;
+    const versionByDoc = new Map((data?.courseDetails || []).map((d) => [String(d.courseDocumentId), d.courseVersion]));
     const byKey = new Map();
     fromData.forEach((c) => {
       const id = c.courseId ?? c.course?.id ?? c.course?.documentId;
       const title = c.courseTitle ?? c.course?.title ?? `Course ${id}`;
       const key = String(id ?? title);
-      if (key) byKey.set(key, { id, title });
+      if (key) byKey.set(key, { id, title, version: versionByDoc.get(String(id)) || null });
     });
     setPersonalEnrolledCourses((prev) => {
       const next = new Map(prev.map((c) => [String(c.id), c]));
@@ -176,15 +177,14 @@ export default function LearningAnalyticsPage() {
     }
   }, [viewMode, company, department, unitLocation, searchDebounced]);
 
-  // Employee Table: default selected course is the first available course.
+  // Employee Table: always one course; the first available course is selected by default.
   useEffect(() => {
     if (viewMode !== 'table') return;
     if (!Array.isArray(courses) || courses.length === 0) {
       setFilterCourse('');
       return;
     }
-    const hasSelectedCourse = courses.some((c) => String(c.id) === String(filterCourse));
-    if (!filterCourse || !hasSelectedCourse) {
+    if (!filterCourse || !courses.some((c) => String(c.id) === String(filterCourse))) {
       setFilterCourse(String(courses[0].id));
     }
   }, [viewMode, courses, filterCourse]);
@@ -499,7 +499,8 @@ export default function LearningAnalyticsPage() {
               setFilterCourse={setFilterCourse}
               filterModule={filterModule}
               setFilterModule={setFilterModule}
-              moduleOptions={moduleOptions}
+              // Module-level detail lists every module, so there is no module filter.
+              moduleOptions={null}
               courses={viewMode === 'personal' ? (employeeId && personalCourseOptions !== null ? personalCourseOptions : []) : courses}
               filterStatus={filterStatus}
               setFilterStatus={setFilterStatus}
@@ -563,6 +564,8 @@ export default function LearningAnalyticsPage() {
                     setModuleDetailPage={setModuleDetailPage}
                     setModuleDetailPageSize={setModuleDetailPageSize}
                     company={company}
+                    courses={courses}
+                    onSelectCourse={setFilterCourse}
                   />
                 )}
                 {viewMode === 'personal' && (

@@ -39,6 +39,9 @@ export function BarChart({ data = [], title, dataKey = 'value', nameKey = 'name'
   // Minimal left margin so bars use more of the width; YAxis width only for labels
   const margin = isHorizontalBars ? { left: 8, right: 16, top: 8, bottom: 28 } : { top: 20, bottom: 20, left: 5, right: 5 };
   // Height for horizontal chart: fit all bars and labels (roughly 28px per category)
+  // Room for the longest category label (about 6px per character at font size 11), within limits.
+  const longestLabel = Math.max(0, ...data.map((d) => String(d?.[nameKey] ?? '').length));
+  const labelWidth = Math.min(260, Math.max(88, Math.round(longestLabel * 6.2)));
   const chartHeight = isHorizontalBars ? Math.min(700, 90 + data.length * 48) : height;
 
   return (
@@ -52,7 +55,7 @@ export function BarChart({ data = [], title, dataKey = 'value', nameKey = 'name'
           {isHorizontalBars ? (
             <>
               <XAxis type="number" label={{ value: valueLabel + (valueUnit ? ` (${valueUnit})` : ''), position: 'insideBottomRight', offset: 0 }} tickFormatter={v => valueUnit ? `${v} ${valueUnit}` : v} />
-              <YAxis type="category" dataKey={nameKey} width={88} tick={{ fontSize: 11 }} interval={0} />
+              <YAxis type="category" dataKey={nameKey} width={labelWidth} tick={{ fontSize: 11 }} interval={0} />
             </>
           ) : (
             <>

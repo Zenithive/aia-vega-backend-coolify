@@ -99,6 +99,13 @@ module.exports = ({ strapi }) => {
         } catch (_) {
           data.live = EMPTY_LIVE;
         }
+        // Detailed tables: every course, or one course module by module with its learners.
+        try {
+          if (params.courseId) data.courseDetail = await service.getCourseLearningDetail(params.courseId, { filters: params });
+          else data.coursesOverview = await service.getCoursesOverview(params);
+        } catch (detailError) {
+          strapi.log.error('Learning course detail error:', detailError?.stack || detailError);
+        }
         ctx.body = data;
       } catch (error) {
         strapi.log.error('Learning learningGlobal error:', error?.message || error);
@@ -217,6 +224,18 @@ module.exports = ({ strapi }) => {
             data.kpis.avgTimeSpentMinutes = Math.round(((data.kpis.avgTimeSpentMinutes || 0) + totalQuizTime) * 10) / 10;
           }
         }
+        // Every assigned course with module-level detail, and the learner's totals.
+        try {
+          const numericUserId = await resolveNumericUserId(strapi, userId);
+          data.courseDetails = numericUserId
+            ? await service.getPersonalLearningDetail(numericUserId, { courseRef: params.courseId || null })
+            : [];
+          data.personalSummary = service.summarizePersonal(data.courseDetails);
+        } catch (detailError) {
+          strapi.log.error('Learning personal detail error:', detailError?.stack || detailError);
+          data.courseDetails = [];
+          data.personalSummary = null;
+        }
         ctx.body = data;
       } catch (error) {
         strapi.log.error('Learning learningPersonal error:', error?.message || error);
@@ -268,7 +287,8 @@ module.exports = ({ strapi }) => {
           location,
           unitLocation,
         });
-        ctx.body = data || [];
+        // Course versions are separate courses: show the version next to the title.
+        ctx.body = await service.withCourseVersions(data || []);
       } catch (error) {
         strapi.log.error('Learning coursesByDepartment error:', error?.message || error);
         ctx.body = [];

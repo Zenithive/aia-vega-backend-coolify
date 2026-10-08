@@ -4,6 +4,10 @@
 import React, { useCallback } from 'react';
 import { Box, Flex, Typography, SingleSelect, SingleSelectOption, Button } from '@strapi/design-system';
 import DateRangeInput from './DateRangeInput';
+import { withVersion } from './learningDetailUi';
+
+/** Course versions are separate courses: show the version next to the title. */
+const courseLabel = (c) => withVersion(c.title, c.version);
 
 // Parse YYYY-MM-DD string as local date (not UTC)
 const parseLocalDate = (dateStr) => {
@@ -207,7 +211,7 @@ export function Filters({
               >
                 <option value="">All Courses</option>
                 {courses.map((c) => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
+                  <option key={c.id} value={c.id}>{courseLabel(c)}</option>
                 ))}
               </select>
             </Box>
@@ -321,7 +325,7 @@ export function Filters({
                 }}
               >
                 {courses.map(c => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
+                  <option key={c.id} value={c.id}>{courseLabel(c)}</option>
                 ))}
               </select>
             </Box>
@@ -427,7 +431,7 @@ export function Filters({
                 >
                   <option value="">All Courses</option>
                   {courses.map((c) => (
-                    <option key={c.id} value={c.id}>{c.title}</option>
+                    <option key={c.id} value={c.id}>{courseLabel(c)}</option>
                   ))}
                 </select>
               </Box>

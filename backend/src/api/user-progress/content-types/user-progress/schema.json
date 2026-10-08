@@ -30,6 +30,9 @@
       "type": "json",
       "required": true
     },
+    "module_activity": {
+      "type": "json"
+    },
     "started_at": {
       "type": "datetime"
     },

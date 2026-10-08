@@ -32,6 +32,20 @@ async function syncOfflineEntries(strapi, userId, courseId, language) {
   }
 }
 
+/**
+ * Per-module content record kept for Learning Analytics: { [moduleId]: { completed_at, time_spent_minutes } }.
+ * completed_at is the first time the module's content was finished; time adds up over repeated reads.
+ */
+function withModuleActivity(current, moduleKey, deltaMinutes, at) {
+  const activity = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  const prev = activity[moduleKey] && typeof activity[moduleKey] === "object" ? activity[moduleKey] : {};
+  activity[moduleKey] = {
+    completed_at: prev.completed_at || at.toISOString(),
+    time_spent_minutes: Math.max(0, Number(prev.time_spent_minutes) || 0) + deltaMinutes,
+  };
+  return activity;
+}
+
 module.exports = createCoreController("api::user-progress.user-progress", ({ strapi }) => ({
 
   /**
@@ -217,6 +231,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
           progress_status: "In_progress",
           progress_percentage: 0,
           completed_modules: [moduleKey],
+          module_activity: withModuleActivity(null, moduleKey, deltaMinutes, lastAccessedAt),
           started_at: startedAtFromReq || lastAccessedAt,
           completed_at: null,
           last_accessed_at: lastAccessedAt,
@@ -232,6 +247,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       completedSet.add(moduleKey);
       const data = {
         completed_modules: [...completedSet],
+        module_activity: withModuleActivity(progress.module_activity, moduleKey, deltaMinutes, lastAccessedAt),
         started_at: progress.started_at || startedAtFromReq || lastAccessedAt,
         last_accessed_at: lastAccessedAt,
         time_spent_minutes: Math.max(0, Number(progress.time_spent_minutes || 0)) + deltaMinutes,

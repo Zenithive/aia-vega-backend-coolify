@@ -232,11 +232,6 @@ async function ensureOfflineCompletionEntries(strapi, { userId, courseId, langua
  *            currentModule: object|null, percentage: number }}
  */
 async function computeModuleStates(strapi, { course, userId, progress, language }) {
-  const lang = language ?? progress?.selected_language ?? null;
-  const modules = modulesForLanguage(course?.modules, lang);
-  const contentDone = new Set((Array.isArray(progress?.completed_modules) ? progress.completed_modules : []).map(String));
-  const legacyCompleted = progress?.progress_status === 'Completed';
-
   const [submissions, offlineRecords] = await Promise.all([
     userId && course?.id
       ? strapi.db.query(QUIZ_SUBMISSION_UID).findMany({
@@ -254,6 +249,20 @@ async function computeModuleStates(strapi, { course, userId, progress, language 
         })
       : [],
   ]);
+  return deriveModuleStates({ course, progress, language, submissions, offlineRecords });
+}
+
+/**
+ * Same as computeModuleStates, from data already loaded (used for many learners at once, e.g. analytics).
+ * `submissions` are the learner's published quiz submissions for this course row, ordered by attempt_number;
+ * `offlineRecords` their offline-module-completion records with `proof` populated.
+ * With `includeSubmissions`, each quiz module state also carries its submissions (`quiz.submissions`).
+ */
+function deriveModuleStates({ course, progress, language, submissions, offlineRecords, includeSubmissions = false }) {
+  const lang = language ?? progress?.selected_language ?? null;
+  const modules = modulesForLanguage(course?.modules, lang);
+  const contentDone = new Set((Array.isArray(progress?.completed_modules) ? progress.completed_modules : []).map(String));
+  const legacyCompleted = progress?.progress_status === 'Completed';
 
   const quizModules = modules.filter(moduleHasQuiz);
   const lastQuizModule = quizModules[quizModules.length - 1] || null;
@@ -303,6 +312,7 @@ async function computeModuleStates(strapi, { course, userId, progress, language 
         last_score: pendingReview ? null : last?.score ?? null,
         last_passed: last && !pendingReview ? last.passed === true : null,
       };
+      if (includeSubmissions) state.quiz.submissions = subs;
       state.completed = passed || legacyCompleted;
     } else {
       state.completed = read || legacyCompleted;
@@ -432,6 +442,7 @@ module.exports = {
   loadProgress,
   updateProgressRows,
   computeModuleStates,
+  deriveModuleStates,
   nextStepFor,
   recomputeProgress,
   setModuleContentDone,

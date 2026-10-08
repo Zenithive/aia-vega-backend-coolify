@@ -4,12 +4,14 @@ import { StatCard } from '../../../components/StatCard';
 import { DonutChart } from '../../../components/DonutChart';
 import { LineChart } from '../../../components/LineChart';
 import { BarChart } from '../../../components/BarChart';
-import { DataTable } from '../../../components/DataTable';
+import { CourseDetailView } from './CourseDetailView';
+import { CoursesOverview } from './CoursesOverview';
 import { DropOffEnrollmentsModal } from '../../../components/DropOffEnrollmentsModal';
 
 /**
  * Learning Analytics – Course (global) view.
- * Same table as Personal view but data across all users. One table only; Table/Chart toggle (right-aligned).
+ * Table/Chart toggle (right-aligned). Table: every course with its learners' progress, or — with a
+ * course selected — that course module by module and every assigned learner.
  */
 export function LearningGlobalView({
   data,
@@ -26,8 +28,9 @@ export function LearningGlobalView({
   setModuleDetailPage,
   setModuleDetailPageSize,
   company = '',
+  courses = [],
+  onSelectCourse,
 }) {
-  const [downloadStyle, setDownloadStyle] = React.useState('shown'); // 'shown' or 'all'
   const [showDropOffModal, setShowDropOffModal] = React.useState(false);
   const dataView = courseContentViewType === 'table' ? 'table' : 'chart';
   const setDataView = (v) => setCourseContentViewType(v === 'table' ? 'table' : 'statistics');
@@ -58,74 +61,15 @@ export function LearningGlobalView({
     });
   }, [hasCourse, filterCourse, courseProgress]);
 
-  const moduleColumnsForCourse = useMemo(() => {
-    if (!hasCourse || !courseModules.length) return [];
-    if (hasModule && moduleIndexSelected !== null && !Number.isNaN(moduleIndexSelected)) {
-      const m = courseModules.find((mod) => (mod.index ?? mod.moduleIndex) === moduleIndexSelected);
-      if (!m) return [];
-      const label = m.title ?? `Module ${(moduleIndexSelected ?? 0) + 1}`;
-      const key = `mod_${moduleIndexSelected}`;
-      return [{ key, label, moduleIndex: moduleIndexSelected }];
-    }
-    return courseModules.map((m) => {
-      const idx = m.index ?? m.moduleIndex ?? 0;
-      return { key: `mod_${idx}`, label: m.title ?? `Module ${idx + 1}`, moduleIndex: idx };
-    });
-  }, [hasCourse, hasModule, moduleIndexSelected, courseModules]);
+  const learnerCount = hasCourse ? data?.courseDetail?.summary?.assigned ?? null : data?.coursesOverview?.learners ?? null;
 
-  const tableColumns = useMemo(() => {
-    const base = [
-      {
-        key: 'courseTitle',
-        label: 'Course',
-        header: (
-          <Typography variant="sigma" textColor="neutral600" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>
-            Course
-          </Typography>
-        ),
-        render: (v) => (
-          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220, display: 'block' }} title={v}>{v}</span>
-        ),
-      },
-      { key: 'courseCategory', label: 'Category' },
-      { key: 'status', label: 'Status' },
-      { key: 'percentage', label: 'Progress %', render: (v) => (v != null ? `${v}%` : '—') },
-      { key: 'timeSpentMinutes', label: 'Time (min)' },
-      {
-        key: 'certificateIssued',
-        label: 'Certificate',
-        header: (
-          <Flex direction="column" gap={0} alignItems="flex-start">
-            <Typography variant="sigma" textColor="neutral600">Certificate</Typography>
-            <Typography variant="pi" textColor="neutral500" style={{ fontSize: '11px', fontWeight: 'normal' }}>
-              per enrollment
-            </Typography>
-          </Flex>
-        ),
-      },
-      { key: 'dropOffRate', label: 'Drop Off Rate', render: (v, row) => `${v ?? 0}% (${row.dropOffCount ?? 0})` },
-    ];
-    const moduleColDefs = moduleColumnsForCourse.map((m) => ({
-      key: m.key,
-      label: m.label,
-      exportLabel: `${m.label} (watched/duration min)`,
-      header: (
-        <Flex direction="column" gap={0} alignItems="flex-start">
-          <Typography variant="sigma" textColor="neutral600">{m.label}</Typography>
-          <Typography variant="pi" textColor="neutral500" style={{ fontSize: '11px', fontWeight: 'normal' }}>
-            watched/duration min
-          </Typography>
-        </Flex>
-      ),
-    }));
-    return [...base, ...moduleColDefs];
-  }, [moduleColumnsForCourse]);
-
-  const paginatedTableData = useMemo(() => {
-    if (!tableRows.length) return [];
-    const start = (moduleDetailPage - 1) * moduleDetailPageSize;
-    return tableRows.slice(start, start + moduleDetailPageSize);
-  }, [tableRows, moduleDetailPage, moduleDetailPageSize]);
+  // Table view: open a course from the course list (the course filter uses the dropdown's ids).
+  const openCourse = (course) => {
+    const option =
+      courses.find((c) => c.documentId && c.documentId === course.documentId) ||
+      courses.find((c) => String(c.id) === String(course.courseId));
+    onSelectCourse?.(String(option ? option.id : course.courseId));
+  };
 
   return (
     <>
@@ -146,7 +90,13 @@ export function LearningGlobalView({
           <StatCard label="Total Course" value={kpis.totalCourses ?? 0} colorIndex={0} />
         </Box>
         <Box style={{ flex: '1 1 200px', minWidth: 160, display: 'flex' }}>
-          <StatCard label="Total Enrollment" value={kpis.totalEnrollments ?? kpis.totalAssignments ?? 0} colorIndex={1} />
+          <StatCard
+            label="Total Enrollment"
+            value={kpis.totalEnrollments ?? kpis.totalAssignments ?? 0}
+            // One enrollment = one learner in one course; a learner with 3 courses counts 3 times.
+            subtext={learnerCount != null ? `${learnerCount} learner${learnerCount === 1 ? '' : 's'}` : undefined}
+            colorIndex={1}
+          />
         </Box>
         <Box style={{ flex: '1 1 200px', minWidth: 160, display: 'flex' }}>
           <StatCard label="Completion Rate" value={`${kpis.completionRate ?? 0}%`} colorIndex={2} />
@@ -251,26 +201,11 @@ export function LearningGlobalView({
 
       {dataView === 'table' && (
         <Box marginBottom={6}>
-          <DataTable
-            data={downloadStyle === 'all' ? tableRows : paginatedTableData}
-            fullData={tableRows}
-            paginatedData={paginatedTableData}
-            downloadStyle={downloadStyle}
-            title="Course Progress"
-            exportFileName="course-progress.xlsx"
-            emptyMessage={hasCourse ? (hasModule ? 'No data for the selected course and module.' : 'No data for the selected course.') : 'No course progress data.'}
-            pagination={tableRows.length > 0 ? {
-              page: moduleDetailPage,
-              pageSize: moduleDetailPageSize,
-              total: tableRows.length,
-              onPageChange: setModuleDetailPage,
-              onPageSizeChange: (v) => {
-                setModuleDetailPageSize(Number(v));
-                setModuleDetailPage(1);
-              },
-            } : null}
-            columns={tableColumns}
-          />
+          {hasCourse ? (
+            <CourseDetailView key={filterCourse} detail={data?.courseDetail} company={company} />
+          ) : (
+            <CoursesOverview overview={data?.coursesOverview} onOpenCourse={openCourse} />
+          )}
         </Box>
       )}
       <DropOffEnrollmentsModal

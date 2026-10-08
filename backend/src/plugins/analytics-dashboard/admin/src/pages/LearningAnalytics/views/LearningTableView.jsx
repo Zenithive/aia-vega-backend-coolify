@@ -1,8 +1,9 @@
 // @ts-nocheck
 
 import React from 'react';
-import { Box, Badge, Flex } from '@strapi/design-system';
-import { DataTable } from '../../../components/DataTable';
+import { Box, Badge, Flex, Typography } from '@strapi/design-system';
+import { CourseStatusBadge, ProgressBar, formatDate, formatMinutes, formatScore, plural } from '../../../components/learningDetailUi';
+import { CompactTable, DetailGrid } from '../../../components/CompactTable';
 
 /**
  * Learning Analytics – Employee Table view.
@@ -93,29 +94,24 @@ export function LearningTableView({
   setPage,
   setPageSize,
 }) {
-  const [downloadStyle, setDownloadStyle] = React.useState('shown');
   const rows = data?.rows || [];
-  const tableRows = allRows.length > 0 ? applyEmployeeFilters(allRows, search, filterCourse) : applyEmployeeFilters(rows, search, filterCourse);
-  const paginatedTableData = data?.rows || [];
+  const exportRows = applyEmployeeFilters(allRows.length > 0 ? allRows : rows, search, filterCourse);
   const normalizedCompany = String(company || '').toLowerCase();
-
-  const page = data?.page || 1;
-  const pageSize = data?.pageSize || 10;
-  const total = data?.total || 0;
 
   return (
     <Box marginBottom={6}>
-      <DataTable
-        data={downloadStyle === 'all' ? tableRows : paginatedTableData}
-        fullData={tableRows}
-        paginatedData={paginatedTableData}
-        downloadStyle={downloadStyle}
-        title="Employee Learning Summary"
+      <CompactTable
+        title="Employee learning summary"
+        subtitle="Each employee in the selected course. Click a row for more."
+        rows={rows}
+        allRows={exportRows}
+        getRowKey={(row) => row.employeeId}
+        emptyMessage="No employees found. Try adjusting filters or search."
         exportFileName="employee-learning-summary.xlsx"
         pagination={{
-          page,
-          pageSize,
-          total,
+          page: data?.page || 1,
+          pageSize: data?.pageSize || 10,
+          total: data?.total || 0,
           onPageChange: setPage,
           onPageSizeChange: (v) => {
             setPageSize(Number(v));
@@ -129,62 +125,117 @@ export function LearningTableView({
           setPage(1);
         }}
         columns={[
-          { key: 'employeeName', label: 'Employee Name' },
           {
-            key: 'accountStatus',
-            label: 'Account Status',
-            render: (_, row) => renderAccountStatusTags(row),
-            exportValue: (_, row) => row.accountStatus || 'Active',
+            key: 'employeeName',
+            label: 'Employee',
+            width: '28%',
+            render: (row) => (
+              <Flex direction="column" alignItems="flex-start" gap={1}>
+                <Typography fontWeight="semiBold">{row.employeeName}</Typography>
+                <Typography variant="pi" textColor="neutral600">
+                  {[getEmployeeIdValue(row, normalizedCompany), getLocationValue(row, normalizedCompany)]
+                    .filter((v) => v && v !== '—')
+                    .join(' · ') || '—'}
+                </Typography>
+                {row.accountStatus && row.accountStatus !== 'Active' && renderAccountStatusTags(row)}
+              </Flex>
+            ),
           },
           {
-            key: 'employeeIdValue',
-            label: 'Employee ID',
-            render: (_, row) => getEmployeeIdValue(row, normalizedCompany) || '—',
-            exportValue: (_, row) => getEmployeeIdValue(row, normalizedCompany) || '—',
-          },
-          { key: 'email', label: 'Email' },
-          { key: 'company', label: 'Company' },
-          {
-            key: 'locationValue',
-            label: 'Location',
-            render: (_, row) => getLocationValue(row, normalizedCompany) || '—',
-            exportValue: (_, row) => getLocationValue(row, normalizedCompany) || '—',
-          },
-          { key: 'courseStatus', label: 'Course Status' },
-          {
-            key: 'feedbackStatus',
-            label: 'Feedback',
-            render: (v) => {
-              if (v == null || String(v).trim() === '') return filterCourse ? 'No' : '-';
-              return String(v);
-            },
-          },
-          { key: 'progressPercent', label: 'Progress %', render: (v) => `${v ?? 0}%` },
-          {
-            key: 'lastQuizScore',
-            label: 'Quiz Score',
-            render: (_, row) => row.lastQuizScore ?? row.avgScore ?? 0,
-            exportValue: (_, row) => row.lastQuizScore ?? row.avgScore ?? 0,
+            key: 'progressPercent',
+            label: 'Progress',
+            width: '22%',
+            render: (row) => (
+              <Flex direction="column" alignItems="flex-start" gap={1}>
+                <CourseStatusBadge
+                  status={row.coursesCompleted ? 'Completed' : row.coursesInProgress ? 'In_progress' : 'Not_started'}
+                />
+                <ProgressBar value={row.progressPercent} />
+                <Typography variant="pi" textColor="neutral600">
+                  {`${(row.onlineModulesCompleted ?? 0) + (row.offlineModulesCompleted ?? 0)}/${(row.onlineModulesTotal ?? 0) + (row.offlineModulesTotal ?? 0)} modules`}
+                </Typography>
+                {row.coursesOverdue ? (
+                  <Typography variant="pi" textColor="danger600">Overdue</Typography>
+                ) : null}
+              </Flex>
+            ),
           },
           {
-            key: 'quizAttemptCount',
-            label: 'Quiz Attempts',
-            render: (v) => (v == null ? 0 : v),
+            key: 'avgQuizScore',
+            label: 'Quiz',
+            width: '15%',
+            render: (row) =>
+              row.quizAttempts ? (
+                <Flex direction="column" alignItems="flex-start" title="Average of the best score in each quiz">
+                  <Typography variant="pi">{`Score ${formatScore(row.avgQuizScore)}`}</Typography>
+                  <Typography variant="pi" textColor="neutral600">
+                    {`${row.quizModulesPassed ?? 0}/${row.quizModulesTotal ?? 0} passed · ${plural(row.quizAttempts, 'attempt')}`}
+                  </Typography>
+                </Flex>
+              ) : (
+                <Typography variant="pi" textColor="neutral500">—</Typography>
+              ),
           },
           {
             key: 'courseCompletionTimeMinutes',
-            label: 'Completion Time',
+            label: 'Learning time',
+            width: '13%',
             sortable: true,
-            render: (v) => {
-              const m = Number(v);
-              if (Number.isNaN(m) || m < 0) return '—';
-              const h = Math.floor(m / 60);
-              const min = m % 60;
-              if (h === 0) return `${min}m`;
-              if (min === 0) return `${h}h`;
-              return `${h}h${min}m`;
-            },
+            render: (row) => formatMinutes(row.courseCompletionTimeMinutes),
           },
+          {
+            key: 'lastActivityAt',
+            label: 'Last activity',
+            width: '14%',
+            render: (row) =>
+              row.lastActivityAt ? (
+                <Typography variant="pi" textColor={(row.inactiveDays ?? 0) >= 14 && row.coursesInProgress ? 'danger600' : undefined}>
+                  {row.inactiveDays === 0 ? 'Today' : `${row.inactiveDays}d ago`}
+                </Typography>
+              ) : (
+                <Typography variant="pi" textColor="neutral500">No activity</Typography>
+              ),
+          },
+        ]}
+        renderExpanded={(row) => (
+          <DetailGrid
+            items={[
+              ['Email', row.email],
+              ['Company', row.company],
+              ['Account', row.accountStatus || 'Active'],
+              ['Online modules done', `${row.onlineModulesCompleted ?? 0}/${row.onlineModulesTotal ?? 0}`],
+              ['Offline modules done', row.offlineModulesTotal ? `${row.offlineModulesCompleted ?? 0}/${row.offlineModulesTotal}` : '—'],
+              row.offlineProofPending > 0 && ['Waiting for offline proof', plural(row.offlineProofPending, 'module')],
+              ['Quiz modules passed', row.quizModulesTotal ? `${row.quizModulesPassed ?? 0}/${row.quizModulesTotal}` : '—'],
+              ['Feedback', `${row.feedbackSubmitted ?? 0} given`],
+              ['Content time', formatMinutes(row.contentMinutes)],
+              ['Quiz time', formatMinutes(row.quizMinutes)],
+              ['Last activity', formatDate(row.lastActivityAt)],
+            ]}
+          />
+        )}
+        exportColumns={[
+          { label: 'Employee', value: (r) => r.employeeName },
+          { label: 'Employee ID', value: (r) => getEmployeeIdValue(r, normalizedCompany) },
+          { label: 'Email', value: (r) => r.email },
+          { label: 'Company', value: (r) => r.company },
+          { label: 'Location', value: (r) => getLocationValue(r, normalizedCompany) },
+          { label: 'Account status', value: (r) => r.accountStatus || 'Active' },
+          { label: 'Status', value: (r) => (r.coursesCompleted ? 'Completed' : r.coursesInProgress ? 'In progress' : r.coursesAssigned ? 'Not started' : '') },
+          { label: 'Overdue', value: (r) => (r.coursesOverdue ? 'Yes' : 'No') },
+          { label: 'Avg progress %', value: (r) => r.progressPercent },
+          { label: 'Online modules done', value: (r) => `${r.onlineModulesCompleted ?? 0}/${r.onlineModulesTotal ?? 0}` },
+          { label: 'Offline modules done', value: (r) => `${r.offlineModulesCompleted ?? 0}/${r.offlineModulesTotal ?? 0}` },
+          { label: 'Waiting for offline proof', value: (r) => r.offlineProofPending },
+          { label: 'Quiz attempts', value: (r) => r.quizAttempts },
+          { label: 'Avg quiz score %', value: (r) => r.avgQuizScore },
+          { label: 'Quiz modules passed', value: (r) => `${r.quizModulesPassed ?? 0}/${r.quizModulesTotal ?? 0}` },
+          { label: 'Feedback given', value: (r) => r.feedbackSubmitted },
+          { label: 'Feedback pending', value: (r) => r.feedbackPending },
+          { label: 'Learning time (min)', value: (r) => r.courseCompletionTimeMinutes },
+          { label: 'Content time (min)', value: (r) => r.contentMinutes },
+          { label: 'Quiz time (min)', value: (r) => r.quizMinutes },
+          { label: 'Last activity', value: (r) => formatDate(r.lastActivityAt) },
         ]}
       />
     </Box>

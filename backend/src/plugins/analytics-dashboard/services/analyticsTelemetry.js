@@ -211,6 +211,8 @@ module.exports = ({ strapi }) => {
             page_type: e.page_type,
             entity_type: e.entity_type,
             entity_id: e.entity_id,
+            // Learning events name the course module in metadata (used for per-module time in Learning Analytics).
+            module_id: e.metadata?.module_id != null ? String(e.metadata.module_id).slice(0, 255) : null,
             click_count: e.click_count,
             source: e.source,
             ingested_at: new Date().toISOString(),

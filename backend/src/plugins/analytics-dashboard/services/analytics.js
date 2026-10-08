@@ -10,6 +10,7 @@ const getShared = (strapi) => require('./analyticsShared')({ strapi });
 const { buildEmployeeAccountStatus } = require('./analyticsShared');
 const getCommon = (strapi) => require('./analyticsCommon')({ strapi });
 const getLearningQuiz = (strapi) => require('./learning/learningQuiz')({ strapi });
+const getLearningDetail = (strapi) => require('./learning/learningDetail')({ strapi });
 
 // A quiz attempt whose descriptive answers await admin review has a provisional score: not a result yet.
 const isFinalQuizResult = (submission) => submission?.review_status !== 'Pending_review';
@@ -423,12 +424,14 @@ module.exports = ({ strapi }) => {
   const shared = getShared(strapi);
   const common = getCommon(strapi);
   const learningQuiz = getLearningQuiz(strapi);
+  const learningDetail = getLearningDetail(strapi);
   const overall = getOverall(strapi);
   const telemetry = getTelemetry(strapi);
   const service = {
     ...shared,
     ...common,
     ...learningQuiz,
+    ...learningDetail,
     ...overall,
     ...telemetry,
 
@@ -1343,12 +1346,15 @@ module.exports = ({ strapi }) => {
       value: statusCounts[name] || 0,
     }));
 
-    // Course view table: one row per course (aggregated across users). Group by title+category so one row per course regardless of id/documentId variance.
+    // Course view: one row per course (aggregated across users). Course versions are separate courses with
+    // the same title, so group by documentId (draft + published rows of one course share it) and show the version.
     const byCourse = new Map();
     progresses.forEach((p) => {
-      const title = String(p.course?.title ?? 'Unknown').trim();
+      const baseTitle = String(p.course?.title ?? 'Unknown').trim();
+      const version = p.course?.course_version ? String(p.course.course_version).replace(/^v/i, '') : '';
+      const title = version ? `${baseTitle} (v${version})` : baseTitle;
       const category = String(p.course?.course_category ?? p.course?.courseCategory ?? 'Other').trim();
-      const key = `${title}::${category}`;
+      const key = p.course?.documentId ? `doc:${p.course.documentId}` : `${title}::${category}`;
       const cid = p.course?.id ?? p.course?.documentId ?? p.course_id ?? p.courseId;
       if (!byCourse.has(key)) {
         byCourse.set(key, {
@@ -3311,6 +3317,36 @@ module.exports = ({ strapi }) => {
         quizAttemptCount: rowMetrics.quizAttemptCount,
       };
     });
+
+    // Module-level summary per learner (same rules as the learner app): replaces the progress-row based
+    // status / progress / quiz / time figures above with derived ones.
+    try {
+      const summaries = await this.getEmployeeLearningSummaries(userIdsNumeric, { courseRef: params.courseId || null });
+      rows = rows.map((row) => {
+        const s = summaries.get(Number(row.employeeId));
+        if (!s) return row;
+        const statusParts = [
+          s.coursesCompleted ? `Completed: ${s.coursesCompleted}` : null,
+          s.coursesInProgress ? `In progress: ${s.coursesInProgress}` : null,
+          s.coursesNotStarted ? `Not started: ${s.coursesNotStarted}` : null,
+        ].filter(Boolean);
+        return {
+          ...row,
+          ...s,
+          coursesEnrolled: s.coursesAssigned,
+          courseStatus: statusParts.join(', ') || '—',
+          progressPercent: s.avgProgress,
+          avgScore: s.avgQuizScore ?? 0,
+          lastQuizScore: s.avgQuizScore ?? 0,
+          quizAttemptCount: s.quizAttempts,
+          totalModulesDone: s.onlineModulesCompleted + s.offlineModulesCompleted,
+          courseCompletionTimeMinutes: Math.round(s.learningMinutes),
+          feedbackStatus: s.feedbackPending ? `Pending (${s.feedbackPending})` : s.feedbackSubmitted ? 'Submitted' : row.feedbackStatus,
+        };
+      });
+    } catch (e) {
+      strapi.log.error('Employee table: learning summaries failed:', e?.stack || e);
+    }
 
     // If date/course/status/drop-off filters are applied, only include users with matching progress records.
     if (dateFromNorm || dateToNorm || params.courseId || params.status || parseDropOffOnlyParam(params.dropOffOnly)) {

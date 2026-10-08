@@ -54,6 +54,9 @@
     "entity_id": {
       "type": "string"
     },
+    "module_id": {
+      "type": "string"
+    },
     "click_count": {
       "type": "integer",
       "default": 0

@@ -4,6 +4,7 @@ import { StatCard } from '../../../components/StatCard';
 import { DonutChart } from '../../../components/DonutChart';
 import { BarChart } from '../../../components/BarChart';
 import { DataTable } from '../../../components/DataTable';
+import { PersonalCourseDetails } from './PersonalCourseDetails';
 
 /**
  * Learning Analytics – Personal view.
@@ -159,6 +160,11 @@ export function LearningPersonalView({
   }, [tableDataWithModuleCells, courseProgressPage, courseProgressPageSize]);
 
   const showKpis = true;
+
+  // Module-level detail per assigned course (replaces the course table and charts below).
+  if (Array.isArray(data?.courseDetails)) {
+    return <PersonalCourseDetails courses={data.courseDetails} summary={data.personalSummary} />;
+  }
 
   return (
     <>
