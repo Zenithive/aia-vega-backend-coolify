@@ -1,109 +1,24 @@
 // @ts-nocheck
 /**
  * Feedback: what learners said about a course. Feedback forms differ per course and version,
- * so instead of one wide table there are two views:
- *  - Summary: per question, how many learners gave each answer (rating, yes/no, agree…)
- *  - Responses: one row per learner; "View" shows all of their answers
+ * so the table has one row per learner; "View answers" shows all of their answers.
  * The Excel download lists one answer per row.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Badge,
-  Box,
-  Button,
-  Flex,
-  Modal,
-  Searchbar,
-  Table,
-  Tabs,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
-  Typography,
-} from '@strapi/design-system';
-import { Message, Download } from '@strapi/icons';
+import { Box, Button, Flex, Modal, Searchbar, Typography } from '@strapi/design-system';
+import { Message } from '@strapi/icons';
 import { api } from '../../api';
 import CourseFilter, { useCourseFilter } from '../../components/CourseFilter.jsx';
 import { downloadExcel } from '../../components/excel';
 import { CountLine, Empty, ErrorBox, Loading } from '../../components/states.jsx';
-import Pager, { usePaged } from '../../components/Pager.jsx';
+import DataTable from '../../../../../analytics-dashboard/admin/src/components/DataTable';
+
+const cell = { fontSize: '14px' };
 
 function formatDateTime(value) {
   if (!value) return '—';
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-}
-
-const CHOICE_TYPES = new Set(['Rating', 'AgreeOrDisagree', 'YesOrNo', 'YesNo']);
-
-/** Per question (matched by its text, so versions with the same question add up). */
-function summarise(responses) {
-  const questions = new Map();
-  responses.forEach((r) =>
-    r.answers.forEach((a) => {
-      const key = `${a.question.trim().toLowerCase()}::${a.answer_type}`;
-      if (!questions.has(key)) questions.set(key, { key, question: a.question, type: a.answer_type, values: [] });
-      if (String(a.answer).trim() !== '') questions.get(key).values.push({ value: String(a.answer).trim(), by: r.emp_name });
-    })
-  );
-  return [...questions.values()].map((q) => {
-    const counts = new Map();
-    q.values.forEach(({ value }) => counts.set(value, (counts.get(value) || 0) + 1));
-    const numbers = q.values.map((v) => Number(v.value)).filter((n) => Number.isFinite(n));
-    return {
-      ...q,
-      total: q.values.length,
-      counts: [...counts.entries()].sort((a, b) =>
-        q.type === 'Rating' ? Number(b[0]) - Number(a[0]) : b[1] - a[1]
-      ),
-      average: q.type === 'Rating' && numbers.length ? (numbers.reduce((s, n) => s + n, 0) / numbers.length).toFixed(1) : null,
-    };
-  });
-}
-
-function QuestionSummary({ item }) {
-  return (
-    <Box background="neutral0" hasRadius shadow="tableShadow" padding={5} marginBottom={4}>
-      <Flex justifyContent="space-between" alignItems="flex-start" gap={3} marginBottom={3}>
-        <Typography variant="delta" tag="h3">{item.question}</Typography>
-        <Flex gap={2}>
-          {item.average && <Badge backgroundColor="primary100" textColor="primary700">{`Average ${item.average}`}</Badge>}
-          <Badge>{`${item.total} answer${item.total === 1 ? '' : 's'}`}</Badge>
-        </Flex>
-      </Flex>
-      {CHOICE_TYPES.has(item.type) ? (
-        <Flex direction="column" alignItems="stretch" gap={2}>
-          {item.counts.map(([value, count]) => {
-            const pct = item.total ? Math.round((count / item.total) * 100) : 0;
-            return (
-              <Flex key={value} gap={3}>
-                <Box style={{ width: 160 }}>
-                  <Typography>{value}</Typography>
-                </Box>
-                <Box flex="1" background="neutral150" hasRadius style={{ height: 12, overflow: 'hidden' }}>
-                  <Box background="primary500" style={{ width: `${pct}%`, height: '100%' }} />
-                </Box>
-                <Box style={{ width: 90, textAlign: 'right' }}>
-                  <Typography variant="pi">{`${count} (${pct}%)`}</Typography>
-                </Box>
-              </Flex>
-            );
-          })}
-        </Flex>
-      ) : (
-        <Flex direction="column" alignItems="stretch" gap={2} style={{ maxHeight: 240, overflowY: 'auto' }}>
-          {item.values.map((v, i) => (
-            <Box key={i} padding={3} hasRadius background="neutral100">
-              <Typography style={{ whiteSpace: 'pre-wrap' }}>{v.value}</Typography>
-              <Typography variant="pi" textColor="neutral600" tag="p">{`— ${v.by}`}</Typography>
-            </Box>
-          ))}
-        </Flex>
-      )}
-    </Box>
-  );
 }
 
 function ResponseModal({ response, onClose }) {
@@ -143,7 +58,8 @@ export default function Feedback() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [view, setView] = useState('summary');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [open, setOpen] = useState(null);
 
   useEffect(() => {
@@ -171,8 +87,17 @@ export default function Feedback() {
     const q = search.trim().toLowerCase();
     return (rows || []).filter((r) => !q || [r.emp_name, r.emp_code, r.emp_id, r.department].some((v) => String(v || '').toLowerCase().includes(q)));
   }, [rows, search]);
-  const summary = useMemo(() => summarise(filtered), [filtered]);
-  const paged = usePaged(filtered);
+  useEffect(() => setPage(1), [filtered]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const text = (v) => (
+    <Typography variant="omega" style={cell}>
+      {v == null || v === '' ? '—' : v}
+    </Typography>
+  );
 
   const download = () =>
     downloadExcel(
@@ -195,81 +120,64 @@ export default function Feedback() {
 
   return (
     <>
-      <CourseFilter filter={filter} />
+      <CourseFilter filter={filter}>
+        <Box style={{ flex: '1 1 260px', maxWidth: 380 }}>
+          <Searchbar
+            name="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            clearLabel="Clear"
+            placeholder="Search name, employee code or department"
+          >
+            Search learners
+          </Searchbar>
+        </Box>
+      </CourseFilter>
       <ErrorBox message={filter.error || error} />
 
       {rows === null ? (
         <Loading>Loading feedback…</Loading>
       ) : rows.length === 0 ? (
         <Empty icon={<Message width="64px" height="64px" />} content="No feedback has been submitted for this course yet." />
+      ) : filtered.length === 0 ? (
+        <Empty icon={<Message width="64px" height="64px" />} content="Nobody matches your search." />
       ) : (
         <>
-          <Flex gap={4} wrap="wrap" alignItems="flex-end" justifyContent="space-between" marginBottom={4}>
-            <Box style={{ flex: '1 1 280px', maxWidth: 420 }}>
-              <Searchbar name="search" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} clearLabel="Clear" placeholder="Search name, employee code or department">
-                Search learners
-              </Searchbar>
-            </Box>
-            <Button variant="secondary" startIcon={<Download />} disabled={!filtered.length} onClick={download}>
-              Download all answers (Excel)
-            </Button>
-          </Flex>
-
-          <Tabs.Root variant="simple" value={view} onValueChange={setView}>
-            <Tabs.List aria-label="Feedback view">
-              <Tabs.Trigger value="summary">Summary per question</Tabs.Trigger>
-              <Tabs.Trigger value="responses">{`Responses (${filtered.length})`}</Tabs.Trigger>
-            </Tabs.List>
-          </Tabs.Root>
-          <Box paddingTop={4}>
-            {filtered.length === 0 ? (
-              <Empty icon={<Message width="64px" height="64px" />} content="Nobody matches your search." />
-            ) : view === 'summary' ? (
-              <>
-                <CountLine count={filtered.length} noun="response" />
-                {summary.map((item) => (
-                  <QuestionSummary key={item.key} item={item} />
-                ))}
-              </>
-            ) : (
-              <>
-                <Table colCount={5} rowCount={paged.rows.length + 1}>
-                  <Thead>
-                    <Tr>
-                      <Th><Typography variant="sigma">Learner</Typography></Th>
-                      <Th><Typography variant="sigma">Version</Typography></Th>
-                      <Th><Typography variant="sigma">Submitted</Typography></Th>
-                      <Th><Typography variant="sigma">Answers</Typography></Th>
-                      <Th><Typography variant="sigma">Details</Typography></Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {paged.rows.map((r) => (
-                      <Tr key={r.id}>
-                        <Td>
-                          <Flex direction="column" alignItems="flex-start">
-                            <Typography fontWeight="bold">{r.emp_name}</Typography>
-                            <Typography variant="pi" textColor="neutral600">
-                              {[r.emp_code || r.emp_id, r.department].filter(Boolean).join(' · ') || '—'}
-                            </Typography>
-                          </Flex>
-                        </Td>
-                        <Td><Typography>{r.course_version || '—'}</Typography></Td>
-                        <Td><Typography variant="pi">{formatDateTime(r.submitted_at)}</Typography></Td>
-                        <Td><Typography>{r.answers.length}</Typography></Td>
-                        <Td>
-                          <Button size="S" variant="secondary" onClick={() => setOpen(r)}>
-                            View answers
-                          </Button>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-                <Pager paged={paged} />
-              </>
-            )}
-          </Box>
+          <CountLine count={filtered.length} noun="response" />
+          <DataTable
+            data={pageRows}
+            fontSize={cell.fontSize}
+            columns={[
+              { key: 'emp_name', label: 'Learner', render: (v) => text(v) },
+              { key: 'emp_code', label: 'Employee code / ID', render: (v, r) => text(v || r.emp_id) },
+              { key: 'department', label: 'Department', render: (v) => text(v) },
+              { key: 'course_version', label: 'Version', render: (v) => text(v) },
+              { key: 'submitted_at', label: 'Submitted', render: (v) => text(formatDateTime(v)) },
+              { key: 'answers', label: 'Answers', render: (v) => text(String(v.length)) },
+              {
+                key: 'details',
+                label: 'Details',
+                render: (_, r) => (
+                  <Button size="S" variant="secondary" onClick={() => setOpen(r)}>
+                    View answers
+                  </Button>
+                ),
+              },
+            ]}
+            pagination={{
+              page: currentPage,
+              pageSize,
+              total: filtered.length,
+              onPageChange: (p) => setPage(Number(p)),
+              onPageSizeChange: (size) => {
+                setPageSize(Number(size));
+                setPage(1);
+              },
+            }}
+            onExport={download}
+            exportLabel="Download all answers (Excel)"
+          />
         </>
       )}
 

@@ -24,7 +24,6 @@ import {
   Modal,
   Textarea,
   Field,
-  Dialog,
   Searchbar,
   EmptyStateLayout,
   IconButton,
@@ -87,7 +86,7 @@ function ProofDialog({ learner, open, saving, onClose, onSave }) {
           <Modal.Body>
             <Flex direction="column" alignItems="stretch" gap={5}>
               <Typography textColor="neutral700">
-                {`Attach the result of the practical assessment for "${learner?.module_title || 'this module'}". Saving marks the module completed for this learner and unlocks the next module.`}
+                {`Attach the result of the practical assessment for "${learner?.module_title || 'this module'}". Saving marks the module completed for this learner and unlocks the next module. Saved proof cannot be changed or removed later.`}
               </Typography>
               <Box>
                 <Typography variant="pi" fontWeight="bold">
@@ -162,7 +161,6 @@ export default function OfflineAssessments({ canSave }) {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
-  const [removing, setRemoving] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const course = useMemo(() => (courses || []).find((c) => c.documentId === courseId), [courses, courseId]);
@@ -215,20 +213,6 @@ export default function OfflineAssessments({ canSave }) {
       });
       toggleNotification({ type: 'success', message: `${learnerName(editing.user)} completed "${editing.module_title}"` });
       setEditing(null);
-      await loadLearners();
-    } catch (e) {
-      toggleNotification({ type: 'danger', message: errorMessage(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async () => {
-    setBusy(true);
-    try {
-      await getFetchClient().del(`${base}/completions/${removing.completion.id}`);
-      toggleNotification({ type: 'success', message: 'Completion removed — the module is open again for this learner' });
-      setRemoving(null);
       await loadLearners();
     } catch (e) {
       toggleNotification({ type: 'danger', message: errorMessage(e) });
@@ -402,19 +386,15 @@ export default function OfflineAssessments({ canSave }) {
                         <Typography variant="pi" textColor="neutral600">
                           {`Not needed: in ${l.selected_language || 'this learner’s'} language this module is online.`}
                         </Typography>
+                      ) : hasProof ? (
+                        // Submitted proof is final: it cannot be replaced or removed.
+                        <Badge variant="success">Submitted</Badge>
                       ) : !canSave ? (
                         <Typography variant="pi" textColor="neutral600">View only</Typography>
                       ) : (
-                        <Flex gap={2}>
-                          <Button size="S" variant={hasProof ? 'tertiary' : 'default'} startIcon={<Upload />} onClick={() => setEditing(l)}>
-                            {hasProof ? 'Replace proof' : 'Upload proof'}
-                          </Button>
-                          {hasProof && (
-                            <IconButton label="Remove proof" variant="ghost" onClick={() => setRemoving(l)}>
-                              <Trash />
-                            </IconButton>
-                          )}
-                        </Flex>
+                        <Button size="S" startIcon={<Upload />} onClick={() => setEditing(l)}>
+                          Upload proof
+                        </Button>
                       )}
                     </Td>
                   </Tr>
@@ -426,25 +406,6 @@ export default function OfflineAssessments({ canSave }) {
       </>
 
       <ProofDialog learner={editing} open={!!editing} saving={busy} onClose={() => setEditing(null)} onSave={save} />
-
-      <Dialog.Root open={!!removing} onOpenChange={(o) => !o && setRemoving(null)}>
-        <Dialog.Content>
-          <Dialog.Header>Remove completion?</Dialog.Header>
-          <Dialog.Body icon={<WarningCircle fill="danger600" />}>
-            <Typography textAlign="center" variant="epsilon" textColor="neutral800">
-              {`The proof for ${learnerName(removing?.user)} will be removed and "${removing?.module_title}" becomes incomplete again, so later modules lock for this learner.`}
-            </Typography>
-          </Dialog.Body>
-          <Dialog.Footer>
-            <Dialog.Cancel>
-              <Button fullWidth variant="tertiary">Cancel</Button>
-            </Dialog.Cancel>
-            <Button fullWidth variant="danger-light" loading={busy} onClick={remove}>
-              Remove completion
-            </Button>
-          </Dialog.Footer>
-        </Dialog.Content>
-      </Dialog.Root>
     </>
   );
 }

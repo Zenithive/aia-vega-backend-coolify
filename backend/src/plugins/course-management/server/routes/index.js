@@ -44,7 +44,6 @@ module.exports = {
       route('GET', '/offline/courses', 'activity.offlineCourses'),
       route('GET', '/offline/courses/:documentId/learners', 'activity.offlineLearners'),
       route('POST', '/offline/completions', 'activity.saveOfflineCompletion'),
-      route('DELETE', '/offline/completions/:id', 'activity.removeOfflineCompletion'),
     ],
   },
 };

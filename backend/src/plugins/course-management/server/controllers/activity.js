@@ -47,7 +47,4 @@ module.exports = {
   saveOfflineCompletion: guarded('offline', 'update', async (ctx) => ({
     data: await service('offline').saveCompletion(ctx.request.body || {}, ctx.state.user),
   })),
-  removeOfflineCompletion: guarded('offline', 'update', async (ctx) => ({
-    data: await service('offline').removeCompletion(ctx.params.id),
-  })),
 };

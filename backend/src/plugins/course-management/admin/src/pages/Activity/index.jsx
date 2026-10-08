@@ -46,7 +46,7 @@ export function FeedbackPage() {
     <ActivityPage
       tab="feedback"
       title="Feedback"
-      subtitle="See what learners said about a course: a summary per question and each learner’s answers."
+      subtitle="See what learners said about a course: each learner’s answers."
       allowed={perms.canFeedback}
       isLoading={perms.isLoading}
     >

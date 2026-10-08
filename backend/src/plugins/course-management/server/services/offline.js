@@ -151,7 +151,7 @@ module.exports = ({ strapi }) => {
       };
     },
 
-    /** Create or replace the learner's proof for the offline module at `moduleIndex`. */
+    /** Save the learner's proof for the offline module at `moduleIndex` (once; saved proof cannot be changed). */
     async saveCompletion({ courseDocumentId, moduleIndex, userId, proof, remarks }, adminUser) {
       const proofIds = (Array.isArray(proof) ? proof : [])
         .map((f) => Number(typeof f === 'object' && f ? f.id : f))
@@ -187,7 +187,12 @@ module.exports = ({ strapi }) => {
       const existing = await strapi.db.query(OFFLINE_COMPLETION_UID).findOne({
         where: { user: Number(userId), course: courseRow.id, module_id: module.module_id },
         select: ['id', 'documentId'],
+        populate: { proof: { select: ['id'] } },
       });
+      // Entries are created on assignment without proof; once proof is saved it is final.
+      if ((existing?.proof || []).length > 0) {
+        throw new errors.ValidationError('Proof for this module has already been submitted and cannot be changed.');
+      }
 
       if (existing) {
         await strapi.documents(OFFLINE_COMPLETION_UID).update({ documentId: existing.documentId, data });
@@ -201,17 +206,6 @@ module.exports = ({ strapi }) => {
           },
         });
       }
-      return { ok: true };
-    },
-
-    /** Clear the assessment (proof, remarks, date, assessor); the learner's entry itself stays. */
-    async removeCompletion(id) {
-      const row = await strapi.db.query(OFFLINE_COMPLETION_UID).findOne({ where: { id: Number(id) }, select: ['id', 'documentId'] });
-      if (!row) throw new errors.NotFoundError('Completion record not found');
-      await strapi.documents(OFFLINE_COMPLETION_UID).update({
-        documentId: row.documentId,
-        data: { proof: [], remarks: null, completed_at: null, assessed_by: null },
-      });
       return { ok: true };
     },
   };

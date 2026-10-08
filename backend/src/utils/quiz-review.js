@@ -89,6 +89,10 @@ async function applyQuizReview(strapi, submissionId, input, adminUser) {
     },
   });
   if (!submission) throw new errors.NotFoundError('Quiz submission not found.');
+  // A published review is final.
+  if (submission.review_status === REVIEW_STATUS.REVIEWED) {
+    throw new errors.ValidationError('This attempt has already been reviewed; the decision cannot be changed.');
+  }
 
   const answers = Array.isArray(submission.answers) ? submission.answers : [];
   if (!answers.some(isDescriptive)) {

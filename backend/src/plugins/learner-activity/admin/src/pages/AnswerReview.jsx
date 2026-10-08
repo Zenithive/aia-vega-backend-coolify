@@ -74,6 +74,8 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
     };
   }, [submissionId, toggleNotification]);
 
+  // A published review is final: reviewed attempts open read-only.
+  const editable = canSave && detail?.review_status !== 'Reviewed';
   const toReview = (detail?.answers || []).filter((a) => a.needs_review);
   const unmarked = toReview.filter((a) => typeof marks[a.question_id]?.correct !== 'boolean').length;
 
@@ -157,18 +159,16 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
                     </>
                   ) : null}
 
-                  {a.needs_review ? (
+                  {a.needs_review && editable ? (
                     <Flex gap={2} paddingTop={2}>
                       <Button
                         variant={marks[a.question_id]?.correct === true ? 'success' : 'tertiary'}
-                        disabled={!canSave}
                         onClick={() => setMark(a.question_id, { correct: true })}
                       >
                         Correct
                       </Button>
                       <Button
                         variant={marks[a.question_id]?.correct === false ? 'danger' : 'tertiary'}
-                        disabled={!canSave}
                         onClick={() => setMark(a.question_id, { correct: false })}
                       >
                         Incorrect
@@ -195,9 +195,9 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
                     : `Final score ${preview.score}% — ${preview.passed ? 'Passed' : 'Not passed'} (pass mark ${detail.pass_mark}%)`}
                 </Typography>
               ) : null}
-              {canSave ? (
+              {editable ? (
                 <Button onClick={save} loading={saving} disabled={unmarked > 0 || saving}>
-                  {detail.review_status === 'Reviewed' ? 'Update review' : 'Publish result'}
+                  Publish result
                 </Button>
               ) : null}
             </Flex>
