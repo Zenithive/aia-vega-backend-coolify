@@ -387,7 +387,10 @@ export function validateCourse(form, limits = {}) {
   feedbacks.forEach((fb) => {
     const where = `Feedback (${fb.language})`;
     if (!languages.includes(fb.language)) add('feedback', `${where}: language is not selected for this course`, 'warning');
-    if (!fb.feedback_template) add('feedback', `${where}: choose a feedback form`, 'warning', fb.language);
+    // Compulsory feedback with no form would stop learners from ever completing the course.
+    if (!fb.feedback_template) {
+      add('feedback', `${where}: choose a feedback form`, fb.compulsory ? 'error' : 'warning', fb.language);
+    }
   });
 
   return issues;

@@ -114,7 +114,13 @@ export default function ReviewStep({ form, issues, meta, isNew, readOnly, canPub
           <Grid.Item col={3} s={6} direction="column" alignItems="stretch">
             <SummaryItem
               label="Feedback"
-              value={(form.feedback || []).length ? (form.feedback || []).map((f) => f.language).join(', ') : 'None'}
+              value={
+                (form.feedback || []).length
+                  ? `${(form.feedback || []).map((f) => f.language).join(', ')} · ${
+                      (form.feedback || []).some((f) => f.compulsory === true) ? 'Compulsory' : 'Optional'
+                    }`
+                  : 'None'
+              }
             />
           </Grid.Item>
         </Grid.Root>

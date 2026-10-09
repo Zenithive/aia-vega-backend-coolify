@@ -11,13 +11,14 @@
  *  - offline-module-completion: proof per offline module, completed_at, assessor
  *  - feedback-submission (published): feedback given per course
  *  - module-video-progress (published): minutes watched per video module
- *  - activity-log learning_module_enter/exit events: when a module was first opened (module_id is
- *    stored from the learner app's event metadata)
+ *  - activity-log learning events (ingest API): when a module was first opened and the time spent
+ *    (module_id is stored from the learner app's event metadata)
  *
- * Time figures only use recorded values:
- *  - content time: user-progress.time_spent_minutes (time on a module until it is marked done, hidden-tab
- *    time excluded) and, per module, user-progress.module_activity
- *  - quiz time: quiz-submission.time_taken_minutes
+ * Time figures come from the ingested events of the current attempt (see summarizeActivity): the time the
+ * learner was active in the course — module pages, quiz instructions + attempts and the feedback form — with
+ * each second given to a module, so module times add up to the course time. Every view uses this figure.
+ * Learners with no time events yet (older data) fall back to the stored values:
+ * user-progress.time_spent_minutes / module_activity and quiz-submission.time_taken_minutes.
  */
 
 const {
@@ -40,7 +41,21 @@ const ASSIGNMENT_UID = 'api::course-assignment.course-assignment';
 
 const INACTIVE_DAYS = 14;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MODULE_EVENTS = ['learning_module_enter', 'learning_module_exit'];
+const MODULE_EVENTS = [
+  'learning_module_enter',
+  'learning_module_exit',
+  'learning_quiz_started',
+  'learning_quiz_submitted',
+  'learning_feedback_opened',
+  'learning_feedback_submitted',
+];
+/** Events that carry the time spent since their start (duration_seconds). */
+const TIMED_EVENTS = new Set(['learning_module_exit', 'learning_quiz_submitted', 'learning_feedback_submitted']);
+/** Quiz / feedback: everything between opening and submitting counts. */
+const OPENED_BY = { learning_quiz_submitted: 'learning_quiz_started', learning_feedback_submitted: 'learning_feedback_opened' };
+const QUIZ_EVENTS = new Set(['learning_quiz_started', 'learning_quiz_submitted']);
+/** Short gaps between events (moving between pages, quiz instructions) count as learning time. */
+const BRIDGE_MS = 2 * 60 * 1000;
 const USER_FIELDS = ['id', 'username', 'email', 'emp_code', 'emp_id', 'company', 'department', 'designation', 'branch', 'working_location', 'blocked'];
 
 /** Module status per learner (shown in the UI as is). */
@@ -251,7 +266,7 @@ module.exports = ({ strapi }) => {
             activity_description: { $in: MODULE_EVENTS },
             entity_id: { $in: courseKeys },
           },
-          select: ['activity_description', 'entity_id', 'module_id', 'timestamp'],
+          select: ['activity_description', 'entity_id', 'module_id', 'activity_duration', 'session_id', 'timestamp'],
           populate: { user: { select: ['id'] } },
           limit: 300000,
         })
@@ -272,23 +287,21 @@ module.exports = ({ strapi }) => {
       docByCourseKey.set(String(c.id), c.documentId);
       docByCourseKey.set(c.documentId, c.documentId);
     });
-    const activityByPair = new Map();
+    const eventsByPair = new Map();
     (events || []).forEach((e) => {
       const uid = e.user?.id;
       const doc = docByCourseKey.get(String(e.entity_id));
       const at = time(e.timestamp);
       if (!uid || !doc || at == null) return;
       const key = pairKey(uid, doc);
-      if (!activityByPair.has(key)) activityByPair.set(key, { first: null, last: null, modules: new Map() });
-      const bucket = activityByPair.get(key);
-      bucket.first = minOf(bucket.first, at);
-      bucket.last = maxOf(bucket.last, at);
-      if (e.module_id) {
-        const m = bucket.modules.get(String(e.module_id)) || { firstOpened: null, lastSeen: null };
-        if (e.activity_description === 'learning_module_enter') m.firstOpened = minOf(m.firstOpened, at);
-        m.lastSeen = maxOf(m.lastSeen, at);
-        bucket.modules.set(String(e.module_id), m);
-      }
+      if (!eventsByPair.has(key)) eventsByPair.set(key, []);
+      eventsByPair.get(key).push({
+        name: e.activity_description,
+        moduleId: e.module_id ? String(e.module_id) : null,
+        seconds: Math.max(0, num(e.activity_duration) || 0),
+        session: e.session_id || null,
+        at,
+      });
     });
 
     return progresses
@@ -305,13 +318,63 @@ module.exports = ({ strapi }) => {
           offlineRecords: offlineByPair.get(key) || [],
           feedbacks: feedbackByPair.get(key) || [],
           videos: videosByPair.get(key) || [],
-          activity: activityByPair.get(key) || null,
+          events: eventsByPair.get(key) || [],
         };
       })
       .filter(Boolean);
   }
 
   // ── evaluation of one enrollment ────────────────────────────────────────────
+
+  /**
+   * Learning events of the current attempt → when modules were opened and the time spent.
+   * Current attempt: events from the browser session in which the progress record was created onward
+   * (a reset learner gets a new record; events of the earlier attempt are left out).
+   * Time: the gap between two events of one session counts when the later event covers it (module exit /
+   * quiz / feedback duration, hidden-tab time already excluded) or when it is short (BRIDGE_MS). It goes to
+   * the module the learner was on; gaps ending in a quiz event are quiz time.
+   */
+  function summarizeActivity(events, anchor) {
+    if (!events?.length) return null;
+    const sorted = [...events].sort((a, b) => a.at - b.at);
+    let from = anchor;
+    if (anchor != null) {
+      const session = sorted.find((e) => e.at >= anchor)?.session;
+      if (session) from = minOf(anchor, ...sorted.filter((e) => e.session === session).map((e) => e.at));
+    }
+    const list = from == null ? sorted : sorted.filter((e) => e.at >= from);
+    if (!list.length) return null;
+
+    const out = { first: list[0].at, last: list[list.length - 1].at, contentSeconds: 0, quizSeconds: 0, modules: new Map() };
+    const moduleOf = (id) => {
+      if (!out.modules.has(id)) out.modules.set(id, { firstOpened: null, lastSeen: null, contentSeconds: 0, quizSeconds: 0 });
+      return out.modules.get(id);
+    };
+    let current = null;
+    list.forEach((e, i) => {
+      if (e.moduleId) {
+        const m = moduleOf(e.moduleId);
+        if (e.name === 'learning_module_enter') m.firstOpened = minOf(m.firstOpened, e.at);
+        m.lastSeen = maxOf(m.lastSeen, e.at);
+      }
+      const prev = list[i - 1];
+      if (prev && prev.session === e.session) {
+        const gap = e.at - prev.at;
+        let ms;
+        if (OPENED_BY[e.name] && prev.name === OPENED_BY[e.name]) ms = gap;
+        else if (gap <= BRIDGE_MS) ms = gap;
+        else ms = TIMED_EVENTS.has(e.name) ? Math.min(gap, e.seconds * 1000) : 0;
+        if (ms > 0) {
+          const kind = QUIZ_EVENTS.has(e.name) ? 'quizSeconds' : 'contentSeconds';
+          const target = TIMED_EVENTS.has(e.name) || QUIZ_EVENTS.has(e.name) ? e.moduleId || current : current || e.moduleId;
+          out[kind] += ms / 1000;
+          if (target) moduleOf(target)[kind] += ms / 1000;
+        }
+      }
+      if (e.moduleId) current = e.moduleId;
+    });
+    return out;
+  }
 
   function quizSummary(state, submissions) {
     const final = submissions.filter((s) => s.review_status !== 'Pending_review');
@@ -351,7 +414,9 @@ module.exports = ({ strapi }) => {
   }
 
   /** Full picture of one learner in one course. */
-  function evaluate({ progress, user, course, submissions, offlineRecords, feedbacks, videos, activity }) {
+  function evaluate({ progress, user, course, submissions, offlineRecords, feedbacks, videos, events }) {
+    const activity = summarizeActivity(events, time(progress.createdAt));
+    const tracked = !!activity && activity.contentSeconds + activity.quizSeconds > 0;
     const language = progress.selected_language || firstLanguage(course);
     const summary = deriveModuleStates({
       course,
@@ -399,7 +464,13 @@ module.exports = ({ strapi }) => {
           completedAt = pass ? time(pass.review_status === 'Reviewed' && pass.reviewed_at ? pass.reviewed_at : pass.submitted_at) : null;
         } else completedAt = time(record?.completed_at);
       }
-      const contentMinutes = record ? num(record.time_spent_minutes) : null;
+      // Event time when the learner app recorded time for this attempt, else the stored values.
+      const contentMinutes = tracked
+        ? (opened ? round1(opened.contentSeconds / 60) : null)
+        : record ? num(record.time_spent_minutes) : null;
+      const quizMinutes = tracked
+        ? (opened?.quizSeconds > 0 ? round1(opened.quizSeconds / 60) : null)
+        : quiz ? quiz.timeMinutes : null;
       const touched = !!opened || num(video?.time_watched_min) > 0 || (video && video.video_completion_type !== 'not_started');
 
       return {
@@ -415,8 +486,8 @@ module.exports = ({ strapi }) => {
         startedAt: iso(startedAt),
         completedAt: iso(completedAt),
         contentMinutes,
-        quizMinutes: quiz ? quiz.timeMinutes : null,
-        timeSpentMinutes: contentMinutes == null && !quiz?.timeMinutes ? null : round1((contentMinutes || 0) + (quiz?.timeMinutes || 0)),
+        quizMinutes,
+        timeSpentMinutes: contentMinutes == null && !quizMinutes ? null : round1((contentMinutes || 0) + (quizMinutes || 0)),
         video: video
           ? {
               watchedMinutes: num(video.time_watched_min),
@@ -457,8 +528,12 @@ module.exports = ({ strapi }) => {
     const feedbackSubmittedAt = minOf(...(feedbacks || []).map((f) => time(f.createdAt)));
     const feedbackSubmitted = (feedbacks || []).length > 0;
 
-    const contentMinutes = Math.max(0, num(progress.time_spent_minutes) || 0);
-    const quizMinutes = round1(submissions.reduce((s, x) => s + Math.max(0, num(x.time_taken_minutes) || 0), 0));
+    const contentMinutes = tracked
+      ? round1(activity.contentSeconds / 60)
+      : Math.max(0, num(progress.time_spent_minutes) || 0);
+    const quizMinutes = tracked
+      ? round1(activity.quizSeconds / 60)
+      : round1(submissions.reduce((s, x) => s + Math.max(0, num(x.time_taken_minutes) || 0), 0));
     const quizModules = modules.filter((m) => m.quiz);
     const online = modules.filter((m) => m.type !== MODULE_TYPES.OFFLINE);
     const offline = modules.filter((m) => m.type === MODULE_TYPES.OFFLINE);
@@ -846,6 +921,20 @@ module.exports = ({ strapi }) => {
       return data
         .map(evaluate)
         .sort((a, b) => (time(b.assignedAt) || 0) - (time(a.assignedAt) || 0));
+    },
+
+    /**
+     * Learning minutes per "userId::courseDocumentId" — the same figure the course, personal and employee
+     * views show, for other screens (Course view KPIs / chart) to use.
+     */
+    async getLearningMinutesByEnrollment({ userIds = null, courseDocumentIds = null } = {}) {
+      const data = await loadEnrollmentData({ userIds, courseDocumentIds, activeOnly: false });
+      const out = new Map();
+      data.forEach((d) => {
+        const e = evaluate(d);
+        out.set(pairKey(e.userId, e.courseDocumentId), e.time.totalMinutes);
+      });
+      return out;
     },
 
     /** Employee table: per-learner summary across their courses (or one course). Map userId → summary. */

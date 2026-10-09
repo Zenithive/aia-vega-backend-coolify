@@ -409,7 +409,7 @@ function buildEmployeeTableRowMetrics(progs, subs, timeContext = {}) {
   const quizAttemptCount = Array.isArray(subs) ? subs.length : 0;
 
   return {
-    courseCompletionTimeMinutes: Math.round(moduleContentMinutes + quizMinutes + feedbackMinutes),
+    courseCompletionTimeMinutes: moduleContentMinutes + quizMinutes + feedbackMinutes,
     lastQuizScore,
     avgScore: lastQuizScore,
     quizAttemptCount,
@@ -434,6 +434,29 @@ module.exports = ({ strapi }) => {
     ...learningDetail,
     ...overall,
     ...telemetry,
+
+  /**
+   * user-progress row → learning minutes, the same figure the Learning Analytics detail views show
+   * (getLearningMinutesByEnrollment). Rows without event data keep their stored time_spent_minutes.
+   */
+  async _learningMinutesResolver(progresses, fallbackUserId = null) {
+    const userOf = (p) => Number(p.user?.id ?? p.user_id ?? p.userId ?? fallbackUserId);
+    const docOf = (p) => p.course?.documentId ?? null;
+    const userIds = [...new Set((progresses || []).map(userOf).filter((n) => Number.isFinite(n) && n > 0))];
+    const courseDocumentIds = [...new Set((progresses || []).map(docOf).filter(Boolean))];
+    let byPair = new Map();
+    if (userIds.length && courseDocumentIds.length) {
+      try {
+        byPair = await this.getLearningMinutesByEnrollment({ userIds, courseDocumentIds });
+      } catch (e) {
+        strapi.log.warn('Learning time lookup failed:', e?.message || e);
+      }
+    }
+    return (p) => {
+      const minutes = byPair.get(`${userOf(p)}::${docOf(p)}`);
+      return minutes != null ? minutes : Math.max(0, Number(p.time_spent_minutes ?? p.timeSpentMinutes) || 0);
+    };
+  },
 
   async _getRealtimeLearningMinutesByCourse(params = {}, userId = null) {
     const out = {
@@ -1127,6 +1150,9 @@ module.exports = ({ strapi }) => {
       }
     }
 
+    // Learning time per enrollment: same figure as the course / learner detail views.
+    const minutesOf = await this._learningMinutesResolver(progresses);
+
     // Aggregate by status
     const statusCounts = { Not_started: 0, In_progress: 0, Completed: 0, Failed: 0 };
     let totalTimeSpent = 0;
@@ -1152,7 +1178,7 @@ module.exports = ({ strapi }) => {
 
     progresses.forEach((p) => {
       statusCounts[p.progress_status] = (statusCounts[p.progress_status] || 0) + 1;
-      totalTimeSpent += p.time_spent_minutes || 0;
+      totalTimeSpent += minutesOf(p);
       if (p.certificate_issued) certificatesIssued++;
 
       const started = p.progress_status !== 'Not_started' || (p.started_at ?? p.startedAt);
@@ -1183,7 +1209,7 @@ module.exports = ({ strapi }) => {
     const total = progresses.length;
     const completed = statusCounts.Completed;
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-    const avgTimeSpent = total > 0 ? Math.round(totalTimeSpent / total) : 0;
+    const avgTimeSpent = total > 0 ? Math.round((totalTimeSpent / total) * 10) / 10 : 0;
 
     // Drop-off: started but not completed, and no activity in last 14 days
     let dropOffCount = 0;
@@ -1373,7 +1399,7 @@ module.exports = ({ strapi }) => {
       const st = p.progress_status ?? 'Not_started';
       agg.statusCounts[st] = (agg.statusCounts[st] || 0) + 1;
       agg.percentages.push(p.progress_percentage ?? p.progressPercentage ?? 0);
-      agg.timeSpentMinutes.push(p.time_spent_minutes ?? p.timeSpentMinutes ?? 0);
+      agg.timeSpentMinutes.push(minutesOf(p));
       if (p.certificate_issued ?? p.certificateIssued) agg.certificateCount += 1;
     });
 
@@ -1430,9 +1456,7 @@ module.exports = ({ strapi }) => {
         totalEnrollments: total,
         totalAssignments: total,
         completionRate,
-        // avgTimeSpent = average of time_spent_minutes across all user-progress records.
-        // Realtime telemetry totals are cumulative across all sessions and not a per-enrollment
-        // average, so we use the DB value only.
+        // Average learning time per enrollment (ingested learning events of the current attempt).
         avgTimeSpentMinutes: avgTimeSpent,
         avgQuizScore,
         completedCourse: completed,
@@ -2322,6 +2346,9 @@ module.exports = ({ strapi }) => {
       strapi.log.warn('Learning personal: quiz/feedback lookup failed:', e?.message);
     }
 
+    // Learning time per course: same figure as the course / learner detail views.
+    const minutesOfPersonal = await this._learningMinutesResolver(progressesDedup, numericUserId);
+
     progressesDedup.forEach((p) => {
       statusCounts[p.progress_status] = (statusCounts[p.progress_status] || 0) + 1;
 
@@ -2331,7 +2358,7 @@ module.exports = ({ strapi }) => {
 
       const courseId = p.course?.documentId ?? p.course?.document_id ?? p.course?.id ?? p.course_id ?? p.courseId;
       const numericCourseId = p.course?.id ?? p.course_id ?? p.courseId;
-      const moduleTimeMinutes = p.time_spent_minutes ?? 0;
+      const moduleTimeMinutes = minutesOfPersonal(p);
 
       totalTimeSpent += moduleTimeMinutes;
 
@@ -2371,11 +2398,8 @@ module.exports = ({ strapi }) => {
       }
     });
 
-    const realtimeByCoursePersonal = await this._getRealtimeLearningMinutesByCourse(params, userId);
-    let courseProgressWithRealtime = this._mergeRealtimeMinutesIntoCourseRows(courseProgress, realtimeByCoursePersonal);
-    courseProgressWithRealtime = this._applyRealtimeToSelectedCourseRows(courseProgressWithRealtime, params.courseId, realtimeByCoursePersonal);
-    const totalTimeFromRows = courseProgressWithRealtime.reduce((sum, row) => sum + (Number(row.timeSpentMinutes) || 0), 0);
-    totalTimeSpent = Math.max(totalTimeSpent, Math.round(totalTimeFromRows * 10) / 10);
+    // Times already come from the learning events of each attempt (no cumulative realtime merge).
+    const courseProgressWithRealtime = courseProgress;
 
     if (progressesDedup.length > 0) {
       const userWhere = isDocumentId ? { documentId: userId } : { id: userId };
@@ -3340,7 +3364,7 @@ module.exports = ({ strapi }) => {
           lastQuizScore: s.avgQuizScore ?? 0,
           quizAttemptCount: s.quizAttempts,
           totalModulesDone: s.onlineModulesCompleted + s.offlineModulesCompleted,
-          courseCompletionTimeMinutes: Math.round(s.learningMinutes),
+          courseCompletionTimeMinutes: s.learningMinutes,
           feedbackStatus: s.feedbackPending ? `Pending (${s.feedbackPending})` : s.feedbackSubmitted ? 'Submitted' : row.feedbackStatus,
         };
       });
@@ -3358,7 +3382,7 @@ module.exports = ({ strapi }) => {
       const value = Number(params.filterTimeValue);
       if (Number.isFinite(value)) {
         const target = Math.round(value);
-        rows = rows.filter((row) => Math.round(Number(row.courseCompletionTimeMinutes ?? 0)) === target);
+        rows = rows.filter((row) => (row.courseCompletionTimeMinutes ?? 0) === target);
       }
     } else {
       // Backward compatibility for older clients still sending range params.
@@ -3820,7 +3844,7 @@ module.exports = ({ strapi }) => {
       const value = Number(params.filterTimeValue);
       if (Number.isFinite(value)) {
         const target = Math.round(value);
-        rows = rows.filter((row) => Math.round(Number(row.courseCompletionTimeMinutes ?? 0)) === target);
+        rows = rows.filter((row) => (row.courseCompletionTimeMinutes ?? 0) === target);
       }
     } else {
       if (params.filterTimeMin) {

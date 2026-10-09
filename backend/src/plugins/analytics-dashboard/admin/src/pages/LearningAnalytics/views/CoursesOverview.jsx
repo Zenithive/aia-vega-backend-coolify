@@ -135,7 +135,7 @@ export function CoursesOverview({ overview, onOpenCourse }) {
                 ['Not started', open.notStarted, `${pctOf(open.notStarted, open.assigned)}% of assigned`],
                 ['Average progress', `${open.avgProgress}%`, <Bar key="bar" value={open.avgProgress} />],
                 ['Drop-off rate', `${open.dropOffRate}%`, `started, no activity ${inactiveDaysThreshold}+ days`],
-                ['Learning time', formatMinutes(open.avgLearningMinutes), 'average per learner'],
+                ['Content time', formatMinutes(open.avgLearningMinutes - open.avgQuizMinutes), 'average per learner'],
                 open.quizModules > 0 && ['Quiz time', formatMinutes(open.avgQuizMinutes), 'average per learner'],
                 [
                   'Most learners are on',

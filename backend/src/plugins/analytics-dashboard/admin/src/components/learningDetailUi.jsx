@@ -18,7 +18,7 @@ export function formatDateTime(value) {
 /** 95 → "1h 35m"; null → "—". */
 export function formatMinutes(value) {
   if (value == null || Number.isNaN(Number(value))) return '—';
-  const m = Math.round(Number(value));
+  const m = Number(value);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
