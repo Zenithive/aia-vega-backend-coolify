@@ -12,6 +12,7 @@ const {
   nextStepFor,
   recomputeProgress,
   ensureOfflineCompletionEntries,
+  isFeedbackCompulsory,
 } = require("../../../utils/course-modules");
 
 async function resolveCourseId(strapi, courseId) {
@@ -311,17 +312,43 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       strapi.log.warn('getAllProgress: feedback batch query failed:', e?.message);
     }
 
+    // Courses whose feedback is compulsory: these are not complete until feedback is sent.
+    const compulsoryCourseIds = new Set();
+    const progressCourseIds = (Array.isArray(records) ? records : [])
+      .map((r) => Number(r.course?.id ?? r.course))
+      .filter((id) => Number.isFinite(id));
+    if (progressCourseIds.length > 0) {
+      try {
+        const courses = await strapi.db.query('api::course.course').findMany({
+          where: { id: { $in: [...new Set(progressCourseIds)] } },
+          select: ['id'],
+          populate: { feedback: true },
+        });
+        (courses || []).forEach((c) => {
+          if (isFeedbackCompulsory(c)) compulsoryCourseIds.add(Number(c.id));
+        });
+      } catch (e) {
+        strapi.log.warn('getAllProgress: course feedback query failed:', e?.message);
+      }
+    }
+
     const byCourse = {};
     (Array.isArray(records) ? records : []).forEach((r) => {
       const courseId = r.course?.id ?? r.course;
       if (courseId != null) {
         const numCourseId = Number(courseId);
+        const feedbackSubmitted = feedbackCourseIds.has(numCourseId);
+        const feedbackCompulsory = compulsoryCourseIds.has(numCourseId);
+        const feedbackPending = r.progress_status === 'Completed' && feedbackCompulsory && !feedbackSubmitted;
+        const status = feedbackPending ? 'In_progress' : r.progress_status;
         byCourse[numCourseId] = {
-          progress_status: r.progress_status,
-          completed: r.progress_status === 'Completed',
-          completed_at: r.completed_at,
-          certificate_issued: r.certificate_issued,
-          feedback_submitted: feedbackCourseIds.has(numCourseId),
+          progress_status: status,
+          completed: status === 'Completed',
+          completed_at: feedbackPending ? null : r.completed_at,
+          certificate_issued: feedbackPending ? false : r.certificate_issued,
+          feedback_submitted: feedbackSubmitted,
+          feedback_compulsory: feedbackCompulsory,
+          feedback_pending: feedbackPending,
           due_date: r.due_date ?? null,
         };
       }
@@ -441,12 +468,10 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
         where: { id: numCourseId },
         populate: { feedback: true },
       });
-      feedbackCompulsory = courseForFb?.feedback?.[0]?.compulsory === true;
+      feedbackCompulsory = isFeedbackCompulsory(courseForFb);
     } catch { /* ignore */ }
-    const effectiveStatus =
-      full.progress_status === 'Completed' && feedbackCompulsory && !hasFeedback
-        ? 'In_progress'
-        : full.progress_status;
+    const feedbackPending = full.progress_status === 'Completed' && feedbackCompulsory && !hasFeedback;
+    const effectiveStatus = feedbackPending ? 'In_progress' : full.progress_status;
 
     return ctx.send({
       id: full.id,
@@ -455,16 +480,19 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       progress_percentage: full.progress_percentage ?? 0,
       completed_modules: Array.isArray(full.completed_modules) ? full.completed_modules : [],
       started_at: full.started_at ?? null,
-      completed_at: full.completed_at ?? null,
+      completed_at: feedbackPending ? null : full.completed_at ?? null,
       last_accessed_at: full.last_accessed_at ?? null,
       time_spent_minutes: full.time_spent_minutes ?? 0,
-      certificate_issued: !!full.certificate_issued,
+      certificate_issued: feedbackPending ? false : !!full.certificate_issued,
       certificate_url: full.certificate_url ?? null,
       selected_language: full.selected_language ?? null,
       course: full.course ?? null,
       user: full.user ?? null,
       quiz_submission: full.quiz_submission ?? null,
       feedback_submission: full.feedback_submission ?? null,
+      // The feedback_submission relation is not always linked, so send the checked value too.
+      feedback_submitted: hasFeedback,
+      feedback_compulsory: feedbackCompulsory,
       ...(await moduleStateFor(full)),
     });
   },
