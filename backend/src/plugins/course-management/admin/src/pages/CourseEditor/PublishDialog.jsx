@@ -87,7 +87,7 @@ export default function PublishDialog({ open, documentId, canAutoAssign, publish
         {sources.length > 1 && (
           <Field.Root name="auto-assign-source">
             <Field.Label>Take the learners from</Field.Label>
-            <SingleSelect value={sourceId} onChange={(v) => setSourceId(String(v))}>
+            <SingleSelect value={sourceId} disabled={publishing} onChange={(v) => setSourceId(String(v))}>
               {sources.map((s) => (
                 <SingleSelectOption key={s.documentId} value={s.documentId}>
                   {`${versionLabel(s)} — ${s.learnerCount} learner${s.learnerCount === 1 ? '' : 's'}`}
@@ -127,6 +127,7 @@ export default function PublishDialog({ open, documentId, canAutoAssign, publish
             onChange={(d) => setDueDate(toISODate(d))}
             onClear={() => setDueDate('')}
             minDate={toPickerDate(toISODate(new Date()))}
+            disabled={publishing}
             clearLabel="Clear date"
           />
         </Field.Root>
@@ -142,7 +143,7 @@ export default function PublishDialog({ open, documentId, canAutoAssign, publish
         </Button>
         <Button
           loading={publishing}
-          disabled={!dueDate}
+          disabled={!dueDate || publishing}
           onClick={() => onPublish({ sourceDocumentId: sourceId, dueDate })}
         >
           {dueDate ? `Publish & assign (due ${formatDay(dueDate)})` : 'Publish & assign'}
