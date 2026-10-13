@@ -106,7 +106,7 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
   };
 
   return (
-    <Modal.Root open onOpenChange={(open) => !open && onClose()}>
+    <Modal.Root open onOpenChange={(open) => !open && !saving && onClose()}>
       <Modal.Content style={{ maxWidth: 880, width: '90vw' }}>
         <Modal.Header>
           <Modal.Title>{detail ? `Quiz review — ${detail.emp_name}` : 'Quiz review'}</Modal.Title>
@@ -163,12 +163,14 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
                     <Flex gap={2} paddingTop={2}>
                       <Button
                         variant={marks[a.question_id]?.correct === true ? 'success' : 'tertiary'}
+                        disabled={saving}
                         onClick={() => setMark(a.question_id, { correct: true })}
                       >
                         Correct
                       </Button>
                       <Button
                         variant={marks[a.question_id]?.correct === false ? 'danger' : 'tertiary'}
+                        disabled={saving}
                         onClick={() => setMark(a.question_id, { correct: false })}
                       >
                         Incorrect
@@ -184,7 +186,9 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close>
-            <Button variant="tertiary">Close</Button>
+            <Button variant="tertiary" disabled={saving}>
+              Close
+            </Button>
           </Modal.Close>
           {detail ? (
             <Flex gap={3} alignItems="center">

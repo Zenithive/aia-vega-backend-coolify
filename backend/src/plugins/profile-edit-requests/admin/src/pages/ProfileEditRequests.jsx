@@ -977,7 +977,7 @@ export default function ProfileEditRequestsPage() {
 
         {/* Changes Preview Modal */}
         {showModal && selectedRequest && (
-          <Modal.Root open={showModal} onOpenChange={(open) => !open && setShowModal(false)}>
+          <Modal.Root open={showModal} onOpenChange={(open) => !open && !updatingId && setShowModal(false)}>
             <Modal.Content>
               <Modal.Header>
                 <Modal.Title>Requested Profile Changes</Modal.Title>
@@ -1027,6 +1027,7 @@ export default function ProfileEditRequestsPage() {
                       </Typography>
                       <textarea
                         value={pendingComment}
+                        disabled={updatingId === String(entryId(selectedRequest))}
                         onChange={(event) => {
                           setPendingComment(event.target.value);
                           if (pendingCommentError) {
@@ -1067,6 +1068,7 @@ export default function ProfileEditRequestsPage() {
                       </Typography>
                       <textarea
                         value={rejectionReason}
+                        disabled={updatingId === String(entryId(selectedRequest))}
                         onChange={(event) => {
                           setRejectionReason(event.target.value);
                           if (rejectionReasonError) {
@@ -1133,7 +1135,7 @@ export default function ProfileEditRequestsPage() {
                     )}
                   </>
                 )}
-                <Button variant="tertiary" onClick={() => setShowModal(false)}>
+                <Button variant="tertiary" disabled={!!updatingId} onClick={() => setShowModal(false)}>
                   Close
                 </Button>
               </Modal.Footer>

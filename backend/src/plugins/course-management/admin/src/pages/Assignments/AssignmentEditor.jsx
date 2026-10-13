@@ -71,7 +71,7 @@ import {
   toISODate,
   toPickerDate,
 } from '../../utils/assignment';
-import { ChoiceCards, Callout, ConfirmDialog } from '../../components/ui.jsx';
+import { BusyArea, ChoiceCards, Callout, ConfirmDialog } from '../../components/ui.jsx';
 
 const EMPTY_FORM = {
   companyDocumentId: '',
@@ -275,6 +275,7 @@ function LearnerDueDateDialog({ target, assignmentId, onClose, onSaved }) {
                 value={toPickerDate(value)}
                 onChange={(d) => setValue(toISODate(d))}
                 onClear={() => setValue('')}
+                disabled={saving}
                 clearLabel="Clear date"
               />
             </Field.Root>
@@ -500,6 +501,19 @@ function EmployeePicker({
     onChange([...byId.values()]);
   };
 
+  // Taking an already-assigned employee off the list is confirmed first: on save they lose the course.
+  const [pendingRemoval, setPendingRemoval] = useState(null); // { assigned: users, apply }
+  const removeUsers = (ids, after) => {
+    const remove = new Set(ids);
+    const apply = () => {
+      onChange(users.filter((u) => !remove.has(u.id)));
+      after?.();
+    };
+    const assigned = users.filter((u) => remove.has(u.id) && assignedIds.has(u.id));
+    if (assigned.length) setPendingRemoval({ assigned, apply });
+    else apply();
+  };
+
   const onFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -601,7 +615,7 @@ function EmployeePicker({
             </Button>
           </Flex>
           <Typography variant="pi" textColor="neutral600" tag="p" marginTop={2}>
-            Have a long list? Upload an Excel or CSV file with one email, employee code or employee ID per row in the first column.
+            Upload an Excel or CSV file with one email, employee code or employee ID per row in the first column.
           </Typography>
         </Box>
       )}
@@ -611,11 +625,7 @@ function EmployeePicker({
           key={upload.key}
           upload={upload}
           disabled={disabled}
-          onRemove={() => {
-            const remove = new Set(upload.addedIds);
-            onChange(users.filter((u) => !remove.has(u.id)));
-            setUploads((list) => list.filter((x) => x.key !== upload.key));
-          }}
+          onRemove={() => removeUsers(upload.addedIds, () => setUploads((list) => list.filter((x) => x.key !== upload.key)))}
         />
       ))}
 
@@ -638,7 +648,7 @@ function EmployeePicker({
               newCount > 0 && assignedIds.size > 0 && <Badge variant="primary">{`${newCount} new`}</Badge>
             )}
           </Flex>
-          {!disabled && users.length > 0 && <TextButton onClick={() => onChange([])}>Remove all</TextButton>}
+          {!disabled && users.length > 0 && <TextButton onClick={() => removeUsers(users.map((u) => u.id))}>Remove all</TextButton>}
         </Flex>
         {users.length > 10 && (
           <Box marginBottom={3}>
@@ -747,7 +757,7 @@ function EmployeePicker({
                         )}
                       </Td>
                       <Td>
-                        <IconButton label="Remove" variant="ghost" disabled={disabled} onClick={() => onChange(users.filter((x) => x.id !== u.id))}>
+                        <IconButton label="Remove" variant="ghost" disabled={disabled} onClick={() => removeUsers([u.id])}>
                           <Trash />
                         </IconButton>
                       </Td>
@@ -780,6 +790,26 @@ function EmployeePicker({
           </Box>
         )}
       </Box>
+
+      <ConfirmDialog
+        open={!!pendingRemoval}
+        title={
+          pendingRemoval?.assigned.length === 1
+            ? `Remove ${employeeLabel(pendingRemoval.assigned[0])}?`
+            : `Remove ${pendingRemoval?.assigned.length} assigned employees?`
+        }
+        confirmLabel="Remove"
+        onClose={() => setPendingRemoval(null)}
+        onConfirm={() => {
+          pendingRemoval.apply();
+          setPendingRemoval(null);
+        }}
+      >
+        {pendingRemoval &&
+          (pendingRemoval.assigned.length === 1
+            ? `${employeeLabel(pendingRemoval.assigned[0])} is already assigned to this course. When you save, they lose access and get a "Course Unassigned" notification. Their progress so far is kept.`
+            : `${names(pendingRemoval.assigned.map(employeeLabel))} are already assigned to this course. When you save, they lose access and get a "Course Unassigned" notification. Their progress so far is kept.`)}
+      </ConfirmDialog>
     </Flex>
   );
 }
@@ -1137,7 +1167,7 @@ export default function AssignmentEditor() {
       <Page.Title>{isNew ? 'Assign a course' : 'Edit assignment'}</Page.Title>
       <Layouts.Header
         navigationAction={
-          <TextButton startIcon={<ArrowLeft />} onClick={() => navigate(`${BASE_PATH}/assignments`)}>
+          <TextButton startIcon={<ArrowLeft />} disabled={saving} onClick={() => navigate(`${BASE_PATH}/assignments`)}>
             All assignments
           </TextButton>
         }
@@ -1152,7 +1182,7 @@ export default function AssignmentEditor() {
         }
         primaryAction={
           !readOnly && (
-            <Button startIcon={<Check />} onClick={askToSave} disabled={!canSave}>
+            <Button startIcon={<Check />} onClick={askToSave} disabled={!canSave || saving}>
               {isNew ? 'Assign course' : 'Save changes'}
             </Button>
           )
@@ -1165,6 +1195,8 @@ export default function AssignmentEditor() {
           </Callout>
         )}
 
+        {/* Nothing on the form can change while the save is running. */}
+        <BusyArea busy={saving}>
         <Grid.Root gap={6}>
           <Grid.Item col={8} s={12} direction="column" alignItems="stretch">
             <StepCard number={1} title="Course and deadline" description="What learners should complete, and by when." done={step1Done}>
@@ -1402,6 +1434,7 @@ export default function AssignmentEditor() {
             </Box>
           </Grid.Item>
         </Grid.Root>
+        </BusyArea>
       </Layouts.Content>
 
       <Dialog.Root open={confirming} onOpenChange={(o) => !o && !saving && setConfirming(false)}>

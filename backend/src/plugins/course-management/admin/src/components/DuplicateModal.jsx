@@ -27,7 +27,7 @@ export default function DuplicateModal({ course, open, loading, error, onClose, 
   };
 
   return (
-    <Modal.Root open={open} onOpenChange={(o) => !o && onClose()}>
+    <Modal.Root open={open} onOpenChange={(o) => !o && !loading && onClose()}>
       <Modal.Content>
         <Modal.Header>
           <Modal.Title>Create a new version</Modal.Title>
@@ -40,7 +40,7 @@ export default function DuplicateModal({ course, open, loading, error, onClose, 
               their current version until you assign the new one.
             </Typography>
             <FormField name="dup-title" label="Course title" required error={isBlank(title) ? 'Title is required' : undefined}>
-              <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
+              <TextInput value={title} disabled={loading} onChange={(e) => setTitle(e.target.value)} />
             </FormField>
             <FormField
               name="dup-version"
@@ -49,15 +49,17 @@ export default function DuplicateModal({ course, open, loading, error, onClose, 
               hint={`Current version: ${course?.course_version || '—'}`}
               error={error || (isBlank(version) ? 'Version is required' : undefined)}
             >
-              <TextInput value={version} onChange={(e) => setVersion(e.target.value)} />
+              <TextInput value={version} disabled={loading} onChange={(e) => setVersion(e.target.value)} />
             </FormField>
           </Flex>
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close>
-            <Button variant="tertiary">Cancel</Button>
+            <Button variant="tertiary" disabled={loading}>
+              Cancel
+            </Button>
           </Modal.Close>
-          <Button onClick={submit} loading={loading} disabled={isBlank(title) || isBlank(version)}>
+          <Button onClick={submit} loading={loading} disabled={isBlank(title) || isBlank(version) || loading}>
             Create draft version
           </Button>
         </Modal.Footer>

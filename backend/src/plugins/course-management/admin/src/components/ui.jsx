@@ -2,7 +2,7 @@
 /**
  * Small presentational building blocks shared by the list and editor pages.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Box, Flex, Typography, Field, Status, Button, Dialog } from '@strapi/design-system';
 import { WarningCircle } from '@strapi/icons';
 import { STATUS_META } from '../utils/course';
@@ -55,9 +55,26 @@ export function StatusBadge({ status, size = 'S' }) {
   );
 }
 
+/**
+ * Keeps its content visible but blocks every click, key press and edit inside while an API call
+ * is running, so nothing can change under a save. Uses the native `inert` property (set through
+ * a ref: React 18 does not know the attribute).
+ */
+export function BusyArea({ busy, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.inert = !!busy;
+  }, [busy]);
+  return (
+    <div ref={ref} aria-busy={busy || undefined} style={{ opacity: busy ? 0.6 : 1, transition: 'opacity 150ms' }}>
+      {children}
+    </div>
+  );
+}
+
 export function ConfirmDialog({ open, title, children, confirmLabel = 'Confirm', variant = 'danger-light', loading, onConfirm, onClose }) {
   return (
-    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose?.()}>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && !loading && onClose?.()}>
       <Dialog.Content>
         <Dialog.Header>{title}</Dialog.Header>
         <Dialog.Body icon={<WarningCircle fill="danger600" />}>
@@ -69,7 +86,7 @@ export function ConfirmDialog({ open, title, children, confirmLabel = 'Confirm',
         </Dialog.Body>
         <Dialog.Footer>
           <Dialog.Cancel>
-            <Button fullWidth variant="tertiary" onClick={onClose}>
+            <Button fullWidth variant="tertiary" onClick={onClose} disabled={loading}>
               Cancel
             </Button>
           </Dialog.Cancel>
