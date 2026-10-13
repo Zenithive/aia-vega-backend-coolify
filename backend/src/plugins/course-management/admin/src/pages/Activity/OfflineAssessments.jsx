@@ -78,7 +78,7 @@ function ProofDialog({ learner, open, saving, onClose, onSave }) {
 
   return (
     <>
-      <Modal.Root open={open && !pickerOpen} onOpenChange={(o) => !o && onClose()}>
+      <Modal.Root open={open && !pickerOpen} onOpenChange={(o) => !o && !saving && onClose()}>
         <Modal.Content>
           <Modal.Header>
             <Modal.Title>{`Completion proof — ${learnerName(learner?.user)}`}</Modal.Title>
@@ -106,30 +106,32 @@ function ProofDialog({ learner, open, saving, onClose, onSave }) {
                           <Typography>{f.name || `File #${f.id}`}</Typography>
                         </a>
                       </Box>
-                      <IconButton label="Remove file" variant="ghost" onClick={() => setFiles(files.filter((x) => x.id !== f.id))}>
+                      <IconButton label="Remove file" variant="ghost" disabled={saving} onClick={() => setFiles(files.filter((x) => x.id !== f.id))}>
                         <Trash />
                       </IconButton>
                     </Flex>
                   ))}
                 </Flex>
                 <Box marginTop={2}>
-                  <Button variant="secondary" startIcon={<Upload />} onClick={() => setPickerOpen(true)} disabled={!MediaLibraryDialog}>
+                  <Button variant="secondary" startIcon={<Upload />} onClick={() => setPickerOpen(true)} disabled={!MediaLibraryDialog || saving}>
                     Upload or choose files
                   </Button>
                 </Box>
               </Box>
               <Field.Root name="remarks" hint="Optional — e.g. assessor observations or score.">
                 <Field.Label>Remarks</Field.Label>
-                <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+                <Textarea value={remarks} disabled={saving} onChange={(e) => setRemarks(e.target.value)} />
                 <Field.Hint />
               </Field.Root>
             </Flex>
           </Modal.Body>
           <Modal.Footer>
             <Modal.Close>
-              <Button variant="tertiary">Cancel</Button>
+              <Button variant="tertiary" disabled={saving}>
+                Cancel
+              </Button>
             </Modal.Close>
-            <Button loading={saving} disabled={files.length === 0} onClick={() => onSave({ files, remarks })}>
+            <Button loading={saving} disabled={files.length === 0 || saving} onClick={() => onSave({ files, remarks })}>
               Save and complete module
             </Button>
           </Modal.Footer>
