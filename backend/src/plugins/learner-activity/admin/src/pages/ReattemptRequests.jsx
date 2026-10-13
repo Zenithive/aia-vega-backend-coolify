@@ -66,7 +66,7 @@ export default function ReattemptRequests() {
   const { refresh: refreshSummary } = useSummary();
   const [list, setList] = useState(null);
   const [error, setError] = useState('');
-  const [updatingId, setUpdatingId] = useState(null);
+  const [updating, setUpdating] = useState(null); // { key, next } of the decision being saved
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [company, setCompany] = useState('');
@@ -89,7 +89,7 @@ export default function ReattemptRequests() {
   }, [load]);
 
   const decide = async (row, next) => {
-    setUpdatingId(row.key);
+    setUpdating({ key: row.key, next });
     try {
       await api.setReattemptStatus(row.documentId, next);
       toggleNotification({
@@ -104,7 +104,7 @@ export default function ReattemptRequests() {
     } catch (e) {
       toggleNotification({ type: 'danger', message: e.message });
     } finally {
-      setUpdatingId(null);
+      setUpdating(null);
     }
   };
 
@@ -215,10 +215,10 @@ export default function ReattemptRequests() {
                 render: (_, row) =>
                   row.status === 'Pending' ? (
                     <Flex gap={2}>
-                      <Button size="S" disabled={updatingId === row.key} onClick={() => decide(row, 'Approved')}>
+                      <Button size="S" disabled={!!updating} loading={updating?.key === row.key && updating.next === 'Approved'} onClick={() => decide(row, 'Approved')}>
                         Approve
                       </Button>
-                      <Button size="S" variant="danger-light" disabled={updatingId === row.key} onClick={() => decide(row, 'Rejected')}>
+                      <Button size="S" variant="danger-light" disabled={!!updating} loading={updating?.key === row.key && updating.next === 'Rejected'} onClick={() => decide(row, 'Rejected')}>
                         Reject
                       </Button>
                     </Flex>

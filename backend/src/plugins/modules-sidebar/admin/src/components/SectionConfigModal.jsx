@@ -64,7 +64,7 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
   };
 
   return (
-    <Modal.Root open={true} onOpenChange={(open) => !open && onClose()}>
+    <Modal.Root open={true} onOpenChange={(open) => !open && !saving && onClose()}>
       <Modal.Content>
         <Modal.Header>
           <Modal.Title>Configure Section Layout</Modal.Title>
@@ -120,6 +120,7 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
                     <Button
                       size="S"
                       variant="tertiary"
+                      disabled={saving}
                       onClick={() => handleRemoveFromSection(section.id, uid)}
                     >
                       Remove
@@ -132,6 +133,7 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
               <SingleSelect
                 placeholder="Add collection..."
                 value=""
+                disabled={saving}
                 onChange={(v) => v && handleAddToSection(section.id, v)}
               >
                 {collectionTypes
@@ -153,9 +155,9 @@ export function SectionConfigModal({ onClose, onSave, initialConfig, collectionT
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close>
-            <Button variant="tertiary" onClick={onClose}>Cancel</Button>
+            <Button variant="tertiary" disabled={saving} onClick={onClose}>Cancel</Button>
           </Modal.Close>
-          <Button onClick={handleSave} loading={saving}>
+          <Button onClick={handleSave} loading={saving} disabled={saving}>
             Save
           </Button>
         </Modal.Footer>

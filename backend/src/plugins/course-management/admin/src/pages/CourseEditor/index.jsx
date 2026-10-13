@@ -33,7 +33,7 @@ import {
   isBlankHtml,
   formatDate,
 } from '../../utils/course';
-import { StatusBadge, Callout, ConfirmDialog } from '../../components/ui.jsx';
+import { StatusBadge, Callout, ConfirmDialog, BusyArea } from '../../components/ui.jsx';
 import { scrollToTop } from '../../components/ScrollArea.jsx';
 import BasicsStep from './BasicsStep.jsx';
 import ModulesStep from './ModulesStep.jsx';
@@ -387,7 +387,7 @@ export default function CourseEditor() {
   const headerActions = (
     <Flex gap={2}>
       {!readOnly && (
-        <Button startIcon={<Check />} onClick={() => save()} loading={busy === 'save'} disabled={!dirty && !isNew}>
+        <Button startIcon={<Check />} onClick={() => save()} loading={busy === 'save'} disabled={(!dirty && !isNew) || !!busy}>
           {isNew || dirty ? 'Save draft' : 'Saved'}
         </Button>
       )}
@@ -400,7 +400,7 @@ export default function CourseEditor() {
       <Page.Title>{form.title || 'New course'}</Page.Title>
       <Layouts.Header
         navigationAction={
-          <TextButton startIcon={<ArrowLeft />} onClick={() => navigate(BASE_PATH)}>
+          <TextButton startIcon={<ArrowLeft />} disabled={!!busy} onClick={() => navigate(BASE_PATH)}>
             All courses
           </TextButton>
         }
@@ -437,6 +437,8 @@ export default function CourseEditor() {
           </Callout>
         )}
 
+        {/* Nothing in the course can change while a save or publish is running. */}
+        <BusyArea busy={!!busy}>
         <Grid.Root gap={6}>
           <Grid.Item col={3} s={12} direction="column" alignItems="stretch">
             <Box style={{ position: 'sticky', top: 16 }}>
@@ -485,6 +487,7 @@ export default function CourseEditor() {
             </Flex>
           </Grid.Item>
         </Grid.Root>
+        </BusyArea>
       </Layouts.Content>
 
       <ConfirmDialog
