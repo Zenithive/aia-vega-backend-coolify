@@ -1145,3 +1145,4 @@ export default function ProfileEditRequestsPage() {
       </Layouts.Content>
     </Layouts.Root>
   );
+}
