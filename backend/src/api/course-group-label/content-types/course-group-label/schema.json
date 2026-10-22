@@ -1,0 +1,26 @@
+{
+  "kind": "collectionType",
+  "collectionName": "course_group_labels",
+  "info": {
+    "singularName": "course-group-label",
+    "pluralName": "course-group-labels",
+    "displayName": "Course Group Label"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "unique": false
+    },
+    "courses": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::course.course",
+      "mappedBy": "course_group_label"
+    }
+  }
+}

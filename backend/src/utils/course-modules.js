@@ -344,23 +344,8 @@ function nextStepFor(summary, course) {
     if (current.has_quiz && current.content_completed) return 'quiz_required';
     return 'continue';
   }
-  return isFeedbackCompulsory(course) ? 'feedback_required' : 'course_complete_allowed';
-}
-
-/** Feedback is per language, but the admin sets "compulsory" for all languages at once. */
-function isFeedbackCompulsory(course) {
-  return (Array.isArray(course?.feedback) ? course.feedback : []).some((f) => f?.compulsory === true);
-}
-
-async function hasSubmittedFeedback(strapi, userId, courseId) {
-  try {
-    const count = await strapi.db.query('api::feedback-submission.feedback-submission').count({
-      where: { course: Number(courseId), users_permissions_user: Number(userId) },
-    });
-    return count > 0;
-  } catch {
-    return false;
-  }
+  const feedbackCompulsory = course?.feedback?.[0]?.compulsory ?? false;
+  return feedbackCompulsory ? 'feedback_required' : 'course_complete_allowed';
 }
 
 /**
@@ -378,15 +363,7 @@ async function recomputeProgress(strapi, { userId, courseId, progress: givenProg
   const now = new Date();
   const data = { progress_percentage: summary.percentage, last_accessed_at: now };
 
-  // With compulsory feedback, the course completes only once feedback is sent (finalizeCourse).
-  const awaitingFeedback =
-    summary.allCompleted && isFeedbackCompulsory(course) && !(await hasSubmittedFeedback(strapi, userId, numCourseId));
-
-  if (awaitingFeedback) {
-    data.progress_status = 'In_progress';
-    data.completed_at = null;
-    data.certificate_issued = false;
-  } else if (summary.allCompleted) {
+  if (summary.allCompleted) {
     data.progress_status = 'Completed';
     data.completed_at = progress.completed_at || now;
     data.certificate_issued = true;
@@ -442,8 +419,6 @@ function normalizeCourseModules(data) {
 
 module.exports = {
   normalizeCourseModules,
-  isFeedbackCompulsory,
-  hasSubmittedFeedback,
   hasProof,
   ensureOfflineCompletionEntries,
   COURSE_UID,

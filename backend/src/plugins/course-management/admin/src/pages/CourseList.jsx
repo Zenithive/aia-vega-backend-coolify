@@ -34,7 +34,7 @@ import { api } from '../api';
 import { BASE_PATH } from '../pluginId';
 import { useCoursePermissions, useAssignmentPermissions, useActivityPermissions } from '../utils/usePermissions';
 import { thumbnailUrl, formatDate } from '../utils/course';
-import { StatusBadge, ConfirmDialog } from '../components/ui.jsx';
+import { ConfirmDialog } from '../components/ui.jsx';
 import DuplicateModal from '../components/DuplicateModal.jsx';
 import SectionNav from '../components/SectionNav.jsx';
 
@@ -44,15 +44,17 @@ const STATUS_FILTERS = [
   { value: 'published', label: 'Published' },
 ];
 
-function Thumbnail({ file }) {
+function Thumbnail({ file, status }) {
   const url = thumbnailUrl(file);
   const isImage = String(file?.mime || '').startsWith('image/');
+  const isPublished = status === 'published';
+
   return (
     <Flex
       width="64px"
       height="44px"
       hasRadius
-      background="primary100"
+      background={isPublished ? 'success100' : 'primary100'}
       justifyContent="center"
       alignItems="center"
       overflow="hidden"
@@ -61,7 +63,7 @@ function Thumbnail({ file }) {
       {url && isImage ? (
         <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       ) : (
-        <Book fill="primary600" />
+        <Book fill={isPublished ? 'success600' : 'primary600'} />
       )}
     </Flex>
   );
@@ -94,6 +96,7 @@ export default function CourseList() {
       language: searchParams.get('language') || '',
       active: searchParams.get('active') || '',
       groupId: searchParams.get('groupId') || '',
+      groupLabelId: searchParams.get('groupLabelId') || '',
       page: Number(searchParams.get('page') || 1),
     }),
     [searchParams]
@@ -176,12 +179,14 @@ export default function CourseList() {
   };
 
   const groupCourse = filters.groupId ? rows[0] : null;
+  const selectedGroupLabel = filters.groupLabelId && options?.courseGroupLabels 
+    ? options.courseGroupLabels.find(l => l.documentId === filters.groupLabelId)
+    : null;
   const pagination = meta?.pagination;
-  const hasFilters = ['search', 'status', 'category', 'language', 'active', 'groupId'].some((k) => filters[k]);
+  const hasFilters = ['search', 'status', 'category', 'language', 'active', 'groupId', 'groupLabelId'].some((k) => filters[k]);
 
   if (perms.isLoading || assignmentPerms.isLoading || activityPerms.isLoading) return <Page.Loading />;
   if (!perms.canRead) {
-    // Roles that only handle assignments, offline proof or feedback land on their part of the plugin.
     const landing = assignmentPerms.canRead
       ? 'assignments'
       : activityPerms.canOffline
@@ -234,6 +239,12 @@ export default function CourseList() {
               items={(options?.categories || []).map((c) => ({ value: c, label: c }))}
             />
             <FilterSelect
+              label="Group Label"
+              value={filters.groupLabelId}
+              onChange={(v) => setFilter('groupLabelId', v)}
+              items={(options?.courseGroupLabels || []).map((label) => ({ value: label.documentId, label: label.name }))}
+            />
+            <FilterSelect
               label="Language"
               value={filters.language}
               onChange={(v) => setFilter('language', v)}
@@ -245,6 +256,11 @@ export default function CourseList() {
               {filters.groupId && (
                 <Tag icon={<Cross />} onClick={() => setFilter('groupId', '')}>
                   {`All versions of "${groupCourse?.title || 'course'}"`}
+                </Tag>
+              )}
+              {filters.groupLabelId && selectedGroupLabel && (
+                <Tag icon={<Cross />} onClick={() => setFilter('groupLabelId', '')}>
+                  {`Group: ${selectedGroupLabel.name}`}
                 </Tag>
               )}
               <TextButton onClick={clearFilters}>
@@ -276,14 +292,14 @@ export default function CourseList() {
           </Box>
         ) : (
           <>
-            <Table colCount={8} rowCount={rows.length + 1}>
+            <Table colCount={7} rowCount={rows.length + 1}>
               <Thead>
                 <Tr>
                   <Th><Typography variant="sigma">Course</Typography></Th>
                   <Th><Typography variant="sigma">Version</Typography></Th>
                   <Th><Typography variant="sigma">Category</Typography></Th>
+                  <Th><Typography variant="sigma">Group Label</Typography></Th>
                   <Th><Typography variant="sigma">Languages</Typography></Th>
-                  <Th><Typography variant="sigma">Status</Typography></Th>
                   <Th><Typography variant="sigma">Updated</Typography></Th>
                   <Th><Typography variant="sigma">Actions</Typography></Th>
                 </Tr>
@@ -298,15 +314,32 @@ export default function CourseList() {
                       style={{ cursor: 'pointer' }}
                     >
                       <Td>
-                        <Flex gap={3}>
-                          <Thumbnail file={course.thumbnail} />
+                        <Flex gap={3} alignItems="center">
+                          <Thumbnail file={course.thumbnail} status={course.status} />
                           <Flex direction="column" alignItems="flex-start" gap={1} style={{ maxWidth: 320 }}>
-                            <Typography fontWeight="bold" ellipsis style={{ maxWidth: 320 }}>
-                              {course.title || 'Untitled course'}
-                            </Typography>
+                            <Flex gap={2} alignItems="center">
+                              <Typography fontWeight="bold" ellipsis style={{ maxWidth: 350 }}>
+                                {course.title || 'Untitled course'}
+                              </Typography>
+                            </Flex>
                             <Typography variant="pi" textColor="neutral600" ellipsis style={{ maxWidth: 320 }}>
                               {course.companies.length ? course.companies.join(', ') : 'All companies'}
                               {course.assignmentCount > 0 && ` · ${course.assignmentCount} assignment${course.assignmentCount === 1 ? '' : 's'}`}
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 'bold',
+                                  textTransform: 'uppercase',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  marginLeft: '6px',
+                                  backgroundColor: isPublished ? '#ebf5ef' : '#e6e6f9',
+                                  color: isPublished ? '#2d8a4e' : '#5a57f1',
+                                  letterSpacing: '0.5px',
+                                }}
+                              >
+                                {course.status}
+                              </span>
                             </Typography>
                           </Flex>
                         </Flex>
@@ -324,27 +357,25 @@ export default function CourseList() {
                               {`${course.versionCount} versions`}
                             </TextButton>
                           )}
+                          {course.active && course.active !== 'published' && (
+                            <Typography variant="pi" textColor="danger600">
+                              Hidden from learners
+                            </Typography>
+                          )}
                         </Flex>
                       </Td>
                       <Td>
                         <Typography>{course.course_category || '—'}</Typography>
                       </Td>
                       <Td>
-                        <Flex gap={1} wrap="wrap" style={{ maxWidth: 180 }}>
+                        <Typography>{course.course_group_label?.name || '—'}</Typography>
+                      </Td>
+                      <Td>
+                        <Flex gap={1} wrap="wrap" style={{ maxWidth: 150 }}>
                           {course.languages.length ? (
                             course.languages.map((l) => <Badge key={l}>{l}</Badge>)
                           ) : (
                             <Typography textColor="neutral500">—</Typography>
-                          )}
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <StatusBadge status={course.status} />
-                          {course.active && course.active !== 'published' && (
-                            <Typography variant="pi" textColor="danger600">
-                              Hidden from learners
-                            </Typography>
                           )}
                         </Flex>
                       </Td>
@@ -426,9 +457,7 @@ export default function CourseList() {
   );
 }
 
-/** Row action menu. New versions and assignments need a published course, so both are disabled for drafts. */
 function RowActions({ course, isPublished, perms, canAssign, onEdit, onDuplicate, onAssign, onDelete }) {
-  // Published courses are locked; they change through "Create new version".
   const canEdit = perms.canUpdate && !isPublished;
   if (!canEdit && !perms.canCreate && !canAssign && !perms.canDelete) return null;
   return (
