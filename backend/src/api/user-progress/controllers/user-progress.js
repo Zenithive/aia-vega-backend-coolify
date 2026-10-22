@@ -253,6 +253,9 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
         time_spent_minutes: Math.max(0, Number(progress.time_spent_minutes || 0)) + deltaMinutes,
         selected_language: effectiveLang,
       };
+      if (!progress.progress_status || progress.progress_status === 'Not_started') {
+        data.progress_status = 'In_progress';
+      }
       await updateProgressRows(strapi, progress, data);
       progress = { ...progress, ...data };
     }
@@ -316,14 +319,22 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       const courseId = r.course?.id ?? r.course;
       if (courseId != null) {
         const numCourseId = Number(courseId);
-        byCourse[numCourseId] = {
+        const key = Number.isFinite(numCourseId) ? numCourseId : String(courseId);
+        const completedModules = Array.isArray(r.completed_modules) ? r.completed_modules : [];
+        const entry = {
           progress_status: r.progress_status,
+          progress_percentage: Number(r.progress_percentage) || 0,
+          completed_modules: completedModules,
+          selected_language: r.selected_language ?? null,
           completed: r.progress_status === 'Completed',
           completed_at: r.completed_at,
           certificate_issued: r.certificate_issued,
-          feedback_submitted: feedbackCourseIds.has(numCourseId),
+          feedback_submitted: feedbackCourseIds.has(Number(key)),
           due_date: r.due_date ?? null,
+          course_document_id: r.course?.documentId ?? null,
         };
+        byCourse[key] = entry;
+        if (r.course?.documentId) byCourse[String(r.course.documentId)] = entry;
       }
     });
     return ctx.send(byCourse);

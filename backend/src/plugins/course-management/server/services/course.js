@@ -82,6 +82,7 @@ module.exports = ({ strapi }) => {
   const editPopulate = () =>
     buildPopulate(strapi, COURSE_UID, {
       course_assignments: { fields: ASSIGNMENT_FIELDS },
+      course_group_label: { fields: ['name'] },
     });
 
   async function findDraft(documentId) {
@@ -192,6 +193,7 @@ module.exports = ({ strapi }) => {
           feedback: { fields: ['language'] },
           company: { fields: ['name'] },
           course_assignments: { fields: ['assignment_target_type'] },
+          course_group_label: { fields: ['name'] },
         },
       });
       const all = Array.isArray(rows) ? rows : [];
@@ -215,6 +217,7 @@ module.exports = ({ strapi }) => {
           title: r.title,
           course_version: r.course_version,
           course_category: r.course_category,
+          course_group_label: r.course_group_label || null,
           languages,
           active: r.active,
           group_id: r.group_id,
@@ -245,6 +248,7 @@ module.exports = ({ strapi }) => {
       if (query.active) items = items.filter((c) => c.active === query.active);
       if (query.language) items = items.filter((c) => c.languages.includes(query.language));
       if (query.groupId) items = items.filter((c) => c.group_id === query.groupId);
+      if (query.groupLabelId) items = items.filter((c) => c.course_group_label?.documentId === query.groupLabelId);
 
       const [sortField, sortDir] = str(query.sort || 'updatedAt:desc').split(':');
       const dir = sortDir === 'asc' ? 1 : -1;
@@ -441,13 +445,18 @@ module.exports = ({ strapi }) => {
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const [companies, feedbackTemplates] = await Promise.all([
+      const [companies, feedbackTemplates, courseGroupLabels] = await Promise.all([
         strapi.documents(COMPANY_UID).findMany({ status: 'draft', fields: ['name'], sort: 'name:asc' }),
         strapi.documents(FEEDBACK_TEMPLATE_UID).findMany({
           status: 'draft',
           fields: ['name'],
           sort: 'name:asc',
           populate: { questions: true, companies: { fields: ['name'] } },
+        }),
+        strapi.documents('api::course-group-label.course-group-label').findMany({
+          status: 'draft',
+          fields: ['name'],
+          sort: 'name:asc',
         }),
       ]);
 
@@ -470,6 +479,10 @@ module.exports = ({ strapi }) => {
             checklistItem: attr('quiz.checklist', 'description').maxLength || null,
           },
           companies: (companies || []).map((c) => ({ documentId: c.documentId, name: c.name })),
+          courseGroupLabels: (courseGroupLabels || []).map((label) => ({
+            documentId: label.documentId,
+            name: label.name,
+          })),
           feedbackTemplates: (feedbackTemplates || []).map((t) => ({
             documentId: t.documentId,
             name: t.name,

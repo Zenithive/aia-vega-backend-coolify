@@ -343,6 +343,7 @@ export function validateCourse(form, limits = {}) {
   if (isBlank(form.course_version)) add('basics', 'Course version is required', 'error', 'course_version');
   if (isBlank(form.course_category)) add('basics', 'Choose a course category', 'error', 'course_category');
   if (languages.length === 0) add('basics', 'Select at least one language', 'error', 'course_language');
+  if (!form.course_group_label?.documentId) add('basics', 'Course group label is required', 'error', 'course_group_label');
   if (!form.thumbnail) add('basics', 'No course picture selected — learners will see a placeholder image', 'warning', 'thumbnail');
 
   // The pass mark only matters once a module has a quiz; it is edited in the quiz settings.

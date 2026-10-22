@@ -4,7 +4,7 @@
  * Version numbers are managed by "Create new version", visibility by Publish / Unpublish,
  * and the pass mark next to the quizzes it applies to.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Grid,
   TextInput,
@@ -12,12 +12,17 @@ import {
   MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
+  Combobox,
+  ComboboxOption,
   Typography,
   Flex,
   Box,
   Badge,
   Button,
+  Dialog,
 } from '@strapi/design-system';
+import { Plus } from '@strapi/icons';
+import { getFetchClient } from '@strapi/strapi/admin';
 import { Section, FormField, Callout } from '../../components/ui.jsx';
 import MediaPicker from '../../components/MediaPicker.jsx';
 import { nearLimit } from '../../utils/course';
@@ -32,11 +37,100 @@ function issueFor(issues, target) {
   return issues.find((i) => i.target === target && i.severity === 'error')?.message;
 }
 
-export default function BasicsStep({ form, update, options, readOnly, issues, onLanguagesChange }) {
+export default function BasicsStep({ form, update, options, readOnly, issues, onLanguagesChange, onOptionsRefresh }) {
   const limits = options?.limits || {};
   const activeOn = (options?.activeValues || [])[0] || 'published';
   const hidden = form.active && form.active !== activeOn;
   const versionMissing = !String(form.course_version || '').trim();
+
+  const [showCreateLabelDialog, setShowCreateLabelDialog] = useState(false);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [creatingLabel, setCreatingLabel] = useState(false);
+  const [createLabelError, setCreateLabelError] = useState('');
+
+  const handleCreateNewLabel = async () => {
+    const trimmedName = newLabelName.trim();
+    
+    if (!trimmedName) {
+      setCreateLabelError('Label name is required');
+      return;
+    }
+
+    // Check if label already exists (handle null/undefined names)
+    const exists = (options?.courseGroupLabels || []).some(
+      (label) => label.name && label.name.toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (exists) {
+      setCreateLabelError('A label with this name already exists');
+      return;
+    }
+
+    setCreatingLabel(true);
+    setCreateLabelError('');
+
+    try {
+      const { post } = getFetchClient();
+      
+      // Step 1: Create the label (as draft)
+      const createResponse = await post('/content-manager/collection-types/api::course-group-label.course-group-label', {
+        name: trimmedName,
+      });
+
+      // Extract documentId from response
+      let documentId = createResponse.data?.documentId;
+      if (!documentId && createResponse.data?.data) {
+        documentId = createResponse.data.data.documentId;
+      }
+      
+      if (!documentId) {
+        throw new Error('Failed to get documentId from created label');
+      }
+
+      // Step 2: Publish the label using the document service action API
+      try {
+        await post(`/content-manager/collection-types/api::course-group-label.course-group-label/${documentId}/actions/publish`);
+      } catch (publishError) {
+        console.warn('Failed to publish label, but it was created:', publishError);
+        // Continue anyway - the label exists, even if not published
+      }
+
+      const newLabel = {
+        documentId: documentId,
+        name: trimmedName,
+      };
+
+      // Refresh options to get updated list
+      if (onOptionsRefresh) {
+        await onOptionsRefresh();
+      }
+
+      // Auto-select the newly created label
+      update({ course_group_label: newLabel });
+
+      // Close dialog and reset
+      setShowCreateLabelDialog(false);
+      setNewLabelName('');
+      setCreateLabelError('');
+    } catch (error) {
+      console.error('Error creating group label:', error);
+      setCreateLabelError('Failed to create label. Please try again.');
+    } finally {
+      setCreatingLabel(false);
+    }
+  };
+
+  const handleOpenCreateDialog = () => {
+    setShowCreateLabelDialog(true);
+    setNewLabelName('');
+    setCreateLabelError('');
+  };
+
+  const handleCloseCreateDialog = () => {
+    if (creatingLabel) return;
+    setShowCreateLabelDialog(false);
+    setNewLabelName('');
+    setCreateLabelError('');
+  };
 
   return (
     <>
@@ -136,6 +230,48 @@ export default function BasicsStep({ form, update, options, readOnly, issues, on
             </FormField>
           </Grid.Item>
 
+          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+            <FormField
+              name="course_group_label"
+              label="Course Group Label"
+              required
+              error={issueFor(issues, 'course_group_label')}
+              hint="Categorize courses by group"
+            >
+              <Flex gap={2} alignItems="flex-end">
+                <Box style={{ flex: 1 }}>
+                  <Combobox
+                    placeholder="Search or select a group label"
+                    value={form.course_group_label?.documentId || null}
+                    disabled={readOnly}
+                    onChange={(value) => {
+                      const selected = (options?.courseGroupLabels || []).find((label) => label.documentId === value);
+                      update({ course_group_label: selected || null });
+                    }}
+                    onClear={() => update({ course_group_label: null })}
+                  >
+                    {(options?.courseGroupLabels || [])
+                      .filter((label) => label.name) // Filter out null/undefined names
+                      .map((label) => (
+                        <ComboboxOption key={label.documentId} value={label.documentId}>
+                          {label.name}
+                        </ComboboxOption>
+                      ))}
+                  </Combobox>
+                </Box>
+                {!readOnly && (
+                  <Button
+                    variant="secondary"
+                    startIcon={<Plus />}
+                    onClick={handleOpenCreateDialog}
+                  >
+                    Create New
+                  </Button>
+                )}
+              </Flex>
+            </FormField>
+          </Grid.Item>
+
           <Grid.Item col={8} s={12} direction="column" alignItems="stretch">
             <FormField name="thumbnail" label="Course picture">
               <MediaPicker
@@ -152,7 +288,7 @@ export default function BasicsStep({ form, update, options, readOnly, issues, on
               name="course_version"
               label="Version"
               error={issueFor(issues, 'course_version')}
-              hint="Change via “Create new version”."
+              hint='Change via "Create new version".'
             >
               {versionMissing && !readOnly ? (
                 <TextInput
@@ -169,6 +305,57 @@ export default function BasicsStep({ form, update, options, readOnly, issues, on
           </Grid.Item>
         </Grid.Root>
       </Section>
+
+      {/* Create New Group Label Dialog */}
+      <Dialog.Root open={showCreateLabelDialog} onOpenChange={(open) => !open && handleCloseCreateDialog()}>
+        <Dialog.Content>
+          <Dialog.Header>Create New Course Group Label</Dialog.Header>
+          <Dialog.Body>
+            <Box marginBottom={4}>
+              <Typography variant="omega" textColor="neutral600" marginBottom={2}>
+                Enter a name for the new group label. This will be used to categorize courses.
+              </Typography>
+            </Box>
+            <FormField
+              name="newLabelName"
+              label="Label Name"
+              required
+              error={createLabelError}
+            >
+              <TextInput
+                placeholder="e.g. Safety Training"
+                value={newLabelName}
+                disabled={creatingLabel}
+                onChange={(e) => {
+                  setNewLabelName(e.target.value);
+                  setCreateLabelError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !creatingLabel) {
+                    e.preventDefault();
+                    handleCreateNewLabel();
+                  }
+                }}
+              />
+            </FormField>
+          </Dialog.Body>
+          <Dialog.Footer>
+            <Dialog.Cancel>
+              <Button fullWidth variant="tertiary" onClick={handleCloseCreateDialog} disabled={creatingLabel}>
+                Cancel
+              </Button>
+            </Dialog.Cancel>
+            <Button
+              fullWidth
+              variant="primary"
+              loading={creatingLabel}
+              onClick={handleCreateNewLabel}
+            >
+              Create Label
+            </Button>
+          </Dialog.Footer>
+        </Dialog.Content>
+      </Dialog.Root>
     </>
   );
 }

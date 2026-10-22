@@ -149,19 +149,24 @@ export default function CourseEditor() {
     setMeta(res.meta || null);
   }, []);
 
+  const loadOptions = useCallback(async () => {
+    const opts = await api.options();
+    setOptions(opts.data);
+    return opts.data;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
     setForm(null);
     (async () => {
       try {
-        const [opts, course] = await Promise.all([api.options(), isNew ? null : api.get(documentId)]);
+        const [opts, course] = await Promise.all([loadOptions(), isNew ? null : api.get(documentId)]);
         if (cancelled) return;
-        setOptions(opts.data);
         if (course) {
-          applyResponse(course, opts.data);
+          applyResponse(course, opts);
         } else {
-          const blank = newCourseForm(opts.data);
+          const blank = newCourseForm(opts);
           setForm(blank);
           setSavedSnapshot(snapshot(blank));
           setMeta(null);
@@ -173,7 +178,7 @@ export default function CourseEditor() {
     return () => {
       cancelled = true;
     };
-  }, [documentId, isNew, applyResponse]);
+  }, [documentId, isNew, applyResponse, loadOptions]);
 
   /* ------------------------------------------------------------- derived state */
 
@@ -452,7 +457,7 @@ export default function CourseEditor() {
               </Callout>
             )}
 
-            {step === 'basics' && <BasicsStep {...stepProps} onLanguagesChange={handleLanguagesChange} />}
+            {step === 'basics' && <BasicsStep {...stepProps} onLanguagesChange={handleLanguagesChange} onOptionsRefresh={loadOptions} />}
             {step === 'modules' && <ModulesStep {...stepProps} />}
             {step === 'feedback' && <FeedbackStep {...stepProps} />}
             {step === 'review' && (

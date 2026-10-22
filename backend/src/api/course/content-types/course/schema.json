@@ -93,6 +93,12 @@
     "group_id": {
       "type": "string",
       "required": true
+    },
+    "course_group_label": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::course-group-label.course-group-label",
+      "inversedBy": "courses"
     }
   }
 }
