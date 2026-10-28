@@ -2,9 +2,9 @@
 /**
  * Table that always fits the page width (no horizontal scrolling).
  *
- * Columns get a share of the width and their content wraps, so related values are grouped into
- * one cell (e.g. name + employee code). Less important details go into the row's expandable area
- * (`renderExpanded`), opened by clicking the row.
+ * Columns get a share of the width and their content wraps. Optional `tableMinWidth` enables a
+ * horizontally scrollable table when all fields need their own column; `renderExpanded` remains
+ * available for tables that intentionally group secondary details.
  *
  * columns: [{ key, label, width?: '25%', render?: (row) => node, sortable?: boolean, align?: 'right' }]
  * exportColumns: [{ label, value: (row) => string|number }] — Excel export of all rows (incl. hidden details)
@@ -13,6 +13,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Button, Flex, Typography } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import * as XLSX from 'xlsx';
 
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -26,20 +27,15 @@ const css = {
     fontWeight: 600,
     textTransform: 'uppercase',
     letterSpacing: '0.02em',
-    color: '#666687',
-    borderBottom: '1px solid #eaeaef',
-    background: '#f6f6f9',
     verticalAlign: 'bottom',
   },
   td: {
     padding: '10px 12px',
     fontSize: 14,
-    color: '#32324d',
-    borderBottom: '1px solid #eaeaef',
     verticalAlign: 'top',
     overflowWrap: 'anywhere',
   },
-  expanded: { padding: '12px 16px 16px 44px', background: '#fafafc', borderBottom: '1px solid #eaeaef' },
+  expanded: { padding: '12px 16px 16px 44px' },
 };
 
 export function exportToExcel(rows, exportColumns, fileName, sheet) {
@@ -78,7 +74,9 @@ export function CompactTable({
   onSortChange = null,
   toolbar = null,
   defaultPageSize = 10,
+  tableMinWidth,
 }) {
+  const { colors } = useTheme();
   const [open, setOpen] = useState(() => new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultPageSize);
@@ -113,6 +111,17 @@ export function CompactTable({
     });
   const expandable = typeof renderExpanded === 'function';
   const colCount = columns.length + (expandable ? 1 : 0);
+  const themedHeader = {
+    ...css.th,
+    color: colors.neutral600,
+    borderBottom: `1px solid ${colors.neutral200}`,
+    background: colors.neutral100,
+  };
+  const themedCell = {
+    ...css.td,
+    color: colors.neutral800,
+    borderBottom: `1px solid ${colors.neutral200}`,
+  };
 
   return (
     <Box background="neutral0" hasRadius shadow="tableShadow" borderColor="neutral200" borderWidth="1px" borderStyle="solid">
@@ -149,73 +158,83 @@ export function CompactTable({
           <Typography textColor="neutral600">{emptyMessage}</Typography>
         </Box>
       ) : (
-        <table style={css.table}>
-          <colgroup>
-            {expandable && <col style={{ width: 32 }} />}
-            {columns.map((c) => (
-              <col key={c.key} style={c.width ? { width: c.width } : undefined} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr>
-              {expandable && <th style={css.th} aria-label="Details" />}
-              {columns.map((c) => {
-                const sortable = c.sortable && onSortChange;
-                const active = sortable && sortBy === c.key;
+        <div style={{ overflowX: tableMinWidth ? 'auto' : undefined }}>
+          <table style={{ ...css.table, minWidth: tableMinWidth }}>
+            <colgroup>
+              {expandable && <col style={{ width: 32 }} />}
+              {columns.map((c) => (
+                <col key={c.key} style={c.width ? { width: c.width } : undefined} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                {expandable &&                 <th style={themedHeader} aria-label="Details" />}
+                {columns.map((c) => {
+                  const sortable = c.sortable && onSortChange;
+                  const active = sortable && sortBy === c.key;
+                  return (
+                    <th
+                      key={c.key}
+                      style={{ ...themedHeader, textAlign: c.align || 'left', cursor: sortable ? 'pointer' : 'default' }}
+                      onClick={sortable ? () => onSortChange(c.key, active && sortOrder === 'desc' ? 'asc' : 'desc') : undefined}
+                      title={sortable ? 'Click to sort' : undefined}
+                    >
+                      {c.label}
+                      {sortable && <span style={{ marginLeft: 4, color: active ? colors.primary600 : colors.neutral500 }}>{active ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row, i) => {
+                const key = String(getRowKey(row, i));
+                const isOpen = open.has(key);
+                const clickable = expandable || onRowClick;
                 return (
-                  <th
-                    key={c.key}
-                    style={{ ...css.th, textAlign: c.align || 'left', cursor: sortable ? 'pointer' : 'default' }}
-                    onClick={sortable ? () => onSortChange(c.key, active && sortOrder === 'desc' ? 'asc' : 'desc') : undefined}
-                    title={sortable ? 'Click to sort' : undefined}
-                  >
-                    {c.label}
-                    {sortable && <span style={{ marginLeft: 4, color: active ? '#4945ff' : '#a5a5ba' }}>{active ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>}
-                  </th>
+                  <React.Fragment key={key}>
+                    <tr
+                      onClick={clickable ? () => (onRowClick ? onRowClick(row) : toggle(key)) : undefined}
+                      style={{ cursor: clickable ? 'pointer' : 'default', background: isOpen ? colors.neutral100 : undefined }}
+                    >
+                      {expandable && (
+                        <td
+                          style={{ ...themedCell, color: colors.neutral500, paddingRight: 0 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggle(key);
+                          }}
+                        >
+                          {isOpen ? '▾' : '▸'}
+                        </td>
+                      )}
+                      {columns.map((c) => (
+                        <td key={c.key} style={{ ...themedCell, textAlign: c.align || 'left' }}>
+                          {c.render ? c.render(row) : row[c.key] ?? '—'}
+                        </td>
+                      ))}
+                    </tr>
+                    {expandable && isOpen && (
+                      <tr>
+                        <td
+                          colSpan={colCount}
+                          style={{
+                            ...css.expanded,
+                            color: colors.neutral800,
+                            background: colors.neutral100,
+                            borderBottom: `1px solid ${colors.neutral200}`,
+                          }}
+                        >
+                          {renderExpanded(row)}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row, i) => {
-              const key = String(getRowKey(row, i));
-              const isOpen = open.has(key);
-              const clickable = expandable || onRowClick;
-              return (
-                <React.Fragment key={key}>
-                  <tr
-                    onClick={clickable ? () => (onRowClick ? onRowClick(row) : toggle(key)) : undefined}
-                    style={{ cursor: clickable ? 'pointer' : 'default', background: isOpen ? '#f6f6f9' : undefined }}
-                  >
-                    {expandable && (
-                      <td
-                        style={{ ...css.td, color: '#8e8ea9', paddingRight: 0 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggle(key);
-                        }}
-                      >
-                        {isOpen ? '▾' : '▸'}
-                      </td>
-                    )}
-                    {columns.map((c) => (
-                      <td key={c.key} style={{ ...css.td, textAlign: c.align || 'left' }}>
-                        {c.render ? c.render(row) : row[c.key] ?? '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  {expandable && isOpen && (
-                    <tr>
-                      <td colSpan={colCount} style={css.expanded}>
-                        {renderExpanded(row)}
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       )}
 
       {rows.length > 0 && (
@@ -229,7 +248,14 @@ export function CompactTable({
             <select
               value={paging.pageSize}
               onChange={(e) => paging.onPageSizeChange(Number(e.target.value))}
-              style={{ padding: '4px 6px', border: '1px solid #dcdce4', borderRadius: 4, fontSize: 13 }}
+              style={{
+                padding: '4px 6px',
+                border: `1px solid ${colors.neutral200}`,
+                borderRadius: 4,
+                fontSize: 13,
+                color: colors.neutral800,
+                background: colors.neutral0,
+              }}
             >
               {PAGE_SIZES.map((n) => (
                 <option key={n} value={n}>

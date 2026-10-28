@@ -5,7 +5,8 @@
  * Data: `courseDetail` from /api/analytics/learning/global (services/learning/learningDetail.js).
  */
 import React, { useMemo, useState } from 'react';
-import { Box, Flex, Typography } from '@strapi/design-system';
+import { Box, Flex, Typography, SingleSelect, SingleSelectOption } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import { DataTable } from '../../../components/DataTable';
 import { exportToExcel } from '../../../components/CompactTable';
 import {
@@ -30,7 +31,7 @@ const LEARNER_GROUPS = [
   { key: 'feedback', label: 'Feedback pending', test: (l) => l.feedback === 'Pending' },
 ];
 
-const selectStyle = { padding: '8px 12px', border: '1px solid #dcdce4', borderRadius: 4, fontSize: 14 };
+const EMPTY_MODULE_FILTER = '__all__';
 const nowrap = (text) => <span style={{ whiteSpace: 'nowrap' }}>{text}</span>;
 const dash = (v) => (v == null || v === '' ? '—' : v);
 
@@ -76,6 +77,7 @@ export const MODULE_EXPORT = [
 const learnerColumns = (idLabel, threshold) => [
   { key: 'name', label: 'Learner', render: (v) => nowrap(v) },
   { key: 'empCode', label: idLabel, render: (_, l) => dash(l.empCode || l.empId) },
+  { key: 'email', label: 'Email', render: (v) => nowrap(v) },
   { key: 'department', label: 'Department', render: dash },
   { key: 'status', label: 'Status', render: (v) => <CourseStatusBadge status={v} /> },
   { key: 'progressPercent', label: 'Progress', render: (v) => `${v}%` },
@@ -113,6 +115,7 @@ const learnerColumns = (idLabel, threshold) => [
 
 const learnerExport = (idLabel) => [
   { label: 'Learner', value: (l) => l.name },
+  { label: 'Email', value: (l) => l.email },
   { label: idLabel, value: (l) => l.empCode || l.empId },
   { label: 'Department', value: (l) => l.department },
   { label: 'Status', value: (l) => courseStatusLabel(l.status) },
@@ -151,6 +154,7 @@ function usePaging(total) {
 }
 
 export function CourseDetailView({ detail, company = '' }) {
+  const { colors } = useTheme();
   const [group, setGroup] = useState('all');
   const [moduleFilter, setModuleFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -196,36 +200,34 @@ export function CourseDetailView({ detail, company = '' }) {
       <Flex gap={3} wrap="wrap" alignItems="flex-end" marginBottom={3}>
         <Box>
           <Typography variant="pi" textColor="neutral600" tag="p">Show</Typography>
-          <select
+          <SingleSelect
             value={group}
-            onChange={(e) => {
-              setGroup(e.target.value);
+            onChange={(value) => {
+              setGroup(value);
               learnerPaging.reset();
             }}
-            style={selectStyle}
           >
             {LEARNER_GROUPS.map((g) => (
-              <option key={g.key} value={g.key}>
+              <SingleSelectOption key={g.key} value={g.key}>
                 {`${g.label} (${learners.filter((l) => g.test(l, threshold)).length})`}
-              </option>
+              </SingleSelectOption>
             ))}
-          </select>
+          </SingleSelect>
         </Box>
         <Box>
           <Typography variant="pi" textColor="neutral600" tag="p">Current module</Typography>
-          <select
-            value={moduleFilter}
-            onChange={(e) => {
-              setModuleFilter(e.target.value);
+          <SingleSelect
+            value={moduleFilter || EMPTY_MODULE_FILTER}
+            onChange={(value) => {
+              setModuleFilter(value === EMPTY_MODULE_FILTER ? '' : value);
               learnerPaging.reset();
             }}
-            style={selectStyle}
           >
-            <option value="">Any module</option>
+            <SingleSelectOption value={EMPTY_MODULE_FILTER}>Any module</SingleSelectOption>
             {modules.map((m) => (
-              <option key={m.index} value={String(m.index)}>{`${m.index + 1}. ${m.title}`}</option>
+              <SingleSelectOption key={m.index} value={String(m.index)}>{`${m.index + 1}. ${m.title}`}</SingleSelectOption>
             ))}
-          </select>
+          </SingleSelect>
         </Box>
         <Box>
           <Typography variant="pi" textColor="neutral600" tag="p">Search</Typography>
@@ -237,7 +239,14 @@ export function CourseDetailView({ detail, company = '' }) {
               learnerPaging.reset();
             }}
             placeholder="Name, code or department"
-            style={{ ...selectStyle, width: 240 }}
+            style={{
+              width: 240,
+              border: `1px solid ${colors.neutral200}`,
+              borderRadius: 4,
+              padding: '8px 12px',
+              color: colors.neutral800,
+              background: colors.neutral0,
+            }}
           />
         </Box>
       </Flex>

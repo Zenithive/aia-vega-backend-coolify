@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { useIntl } from 'react-intl';
 import { Box, Flex, Typography, MultiSelect, MultiSelectOption } from '@strapi/design-system';
 
 /**
@@ -51,8 +50,6 @@ const MultiSelectDropdownInput = React.forwardRef((props, ref) => {
     error,
   } = props;
 
-  const { formatMessage } = useIntl();
-
   const builderOpts = attribute?.options || {};
   const pluginOpts = attribute?.pluginOptions?.customField || {};
   const opts = { ...pluginOpts, ...builderOpts };
@@ -64,8 +61,7 @@ const MultiSelectDropdownInput = React.forwardRef((props, ref) => {
   const formatLabel = (msg) => {
     if (!msg) return '';
     if (typeof msg === 'string') return msg;
-    if (msg.id != null) return formatMessage(msg);
-    return msg.defaultMessage ?? '';
+    return msg.defaultMessage ?? msg.id ?? '';
   };
 
   const displayName = name && name.includes('.') ? name.split('.').pop() : name;

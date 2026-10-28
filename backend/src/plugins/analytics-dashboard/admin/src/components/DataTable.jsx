@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Box, Typography, Table, Thead, Tbody, Tr, Th, Td, Button, Flex } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import * as XLSX from 'xlsx';
 
 const DEFAULT_FONT_SIZE = '16px';
@@ -25,6 +26,7 @@ export function DataTable({
   onExport = null,
   exportLabel = 'Download Excel',
 }) {
+  const { colors } = useTheme();
   const [downloadStyle, setDownloadStyle] = React.useState(propDownloadStyle);
 
   const handleDownloadStyleChange = (value) => {
@@ -138,7 +140,14 @@ export function DataTable({
                 id="download-style-select"
                 value={downloadStyle}
                 onChange={e => handleDownloadStyleChange(e.target.value)}
-                style={{ padding: '4px 8px', fontSize: '14px', borderRadius: 4 }}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '14px',
+                  borderRadius: 4,
+                  border: `1px solid ${colors.neutral200}`,
+                  color: colors.neutral800,
+                  background: colors.neutral0,
+                }}
               >
                 <option value="shown">Current rows</option>
                 <option value="all">All rows</option>
@@ -156,9 +165,11 @@ export function DataTable({
               onChange={(e) => onPageSizeChange?.(e.target.value)}
               style={{
                 padding: '4px 8px',
-                border: '1px solid #dcdce4',
+                border: `1px solid ${colors.neutral200}`,
                 borderRadius: '4px',
                 fontSize: '14px',
+                color: colors.neutral800,
+                background: colors.neutral0,
               }}
             >
               {[5, 10, 20, 25, 50].map((n) => (

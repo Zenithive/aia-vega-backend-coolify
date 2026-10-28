@@ -1,13 +1,33 @@
 
 // @ts-nocheck
 
-import React, { useCallback } from 'react';
+import React from 'react';
 import { Box, Flex, Typography, SingleSelect, SingleSelectOption, Button } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import DateRangeInput from './DateRangeInput';
 import { withVersion } from './learningDetailUi';
 
 /** Course versions are separate courses: show the version next to the title. */
 const courseLabel = (c) => withVersion(c.title, c.version);
+const EMPTY_FILTER_VALUE = '__all__';
+
+function FilterSelect({ value, onChange, options }) {
+  return (
+    <SingleSelect
+      value={value == null || value === '' ? EMPTY_FILTER_VALUE : String(value)}
+      onChange={(nextValue) => onChange(nextValue === EMPTY_FILTER_VALUE ? '' : nextValue)}
+    >
+      {options.map((option) => (
+        <SingleSelectOption
+          key={String(option.value)}
+          value={option.value == null || option.value === '' ? EMPTY_FILTER_VALUE : String(option.value)}
+        >
+          {option.label}
+        </SingleSelectOption>
+      ))}
+    </SingleSelect>
+  );
+}
 
 // Parse YYYY-MM-DD string as local date (not UTC)
 const parseLocalDate = (dateStr) => {
@@ -65,6 +85,7 @@ export function Filters({
   onNewsIdChange = null,
   newsList = [],
 }) {
+  const { colors } = useTheme();
   const activityTypeOptions = [
     { value: '', label: 'All Pages' },
     { value: 'News', label: 'News' },
@@ -103,23 +124,7 @@ export function Filters({
           <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
             Company
           </Typography>
-          <select
-            value={company || ''}
-            onChange={(e) => onCompanyChange(e.target.value || '')}
-            style={{
-              padding: '8px 12px',
-              border: '1px solid #dcdce4',
-              borderRadius: '4px',
-              fontSize: '14px',
-              minWidth: '100%',
-            }}
-          >
-            {companies.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <FilterSelect value={company} onChange={(value) => onCompanyChange(value || '')} options={companies} />
         </Box>
         {!hideViewFilter && (
           <Box style={{ minWidth: 140 }}>
@@ -166,34 +171,23 @@ export function Filters({
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Department
                 </Typography>
-                <select
-                  value={department || ''}
-                  onChange={(e) => onDepartmentChange(e.target.value || '')}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Departments</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={department}
+                  onChange={(value) => onDepartmentChange(value || '')}
+                  options={[
+                    { value: '', label: 'All Departments' },
+                    ...departments.map((d) => ({ value: d.id, label: d.name })),
+                  ]}
+                />
               </Box>
             )}
             <Box style={{ minWidth: 180 }}>
               <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                 Course
               </Typography>
-              <select
-                value={filterCourse || ''}
-                onChange={(e) => {
-                  const v = e.target.value;
+              <FilterSelect
+                value={filterCourse}
+                onChange={(v) => {
                   setFilterCourse(v);
                   if (setFilterModule) setFilterModule('');
                   if (!v) {
@@ -201,43 +195,28 @@ export function Filters({
                     if (setFilterFeedbackGiven) setFilterFeedbackGiven('');
                   }
                 }}
-                style={{
-                  padding: '8px 12px',
-                  border: '1px solid #dcdce4',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  minWidth: '100%',
-                }}
-              >
-                <option value="">All Courses</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>{courseLabel(c)}</option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'All Courses' },
+                  ...courses.map((c) => ({ value: c.id, label: courseLabel(c) })),
+                ]}
+              />
             </Box>
             {filterCourse && setFilterModule && moduleOptions && (
               <Box style={{ minWidth: 180 }}>
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Module
                 </Typography>
-                <select
-                  value={filterModule || ''}
-                  onChange={(e) => setFilterModule(e.target.value)}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Modules</option>
-                  {moduleOptions.map((m) => (
-                    <option key={m.value || m.title || m} value={m.value ?? m.title ?? m}>
-                      {m.label ?? m.title ?? m.value ?? m}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={filterModule}
+                  onChange={setFilterModule}
+                  options={[
+                    { value: '', label: 'All Modules' },
+                    ...moduleOptions.map((m) => ({
+                      value: m.value ?? m.title ?? m,
+                      label: m.label ?? m.title ?? m.value ?? m,
+                    })),
+                  ]}
+                />
               </Box>
             )}
             {!filterCourse && (
@@ -245,46 +224,30 @@ export function Filters({
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Course Type
                 </Typography>
-                <select
-                  value={filterCourseCategory || ''}
-                  onChange={(e) => setFilterCourseCategory?.(e.target.value || '')}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Types</option>
-                  <option value="Mandatory">Mandatory</option>
-                  <option value="Orientation">Orientation</option>
-                  <option value="Other">Other</option>
-                </select>
+                <FilterSelect
+                  value={filterCourseCategory}
+                  onChange={(value) => setFilterCourseCategory?.(value || '')}
+                  options={[
+                    { value: '', label: 'All Types' },
+                    { value: 'Mandatory', label: 'Mandatory' },
+                    { value: 'Orientation', label: 'Orientation' },
+                    { value: 'Other', label: 'Other' },
+                  ]}
+                />
               </Box>
             )}
             <Box style={{ minWidth: 180 }}>
               <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                 Location
               </Typography>
-              <select
-                value={unitLocation || ''}
-                onChange={(e) => onUnitLocationChange?.(e.target.value || '')}
-                style={{
-                  padding: '8px 12px',
-                  border: '1px solid #dcdce4',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  minWidth: '100%',
-                }}
-              >
-                <option value="">All Locations</option>
-                {unitLocations.map((l) => (
-                  <option key={l.id} value={String(l.id)}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
+              <FilterSelect
+                value={unitLocation}
+                onChange={(value) => onUnitLocationChange?.(value || '')}
+                options={[
+                  { value: '', label: 'All Locations' },
+                  ...unitLocations.map((l) => ({ value: l.id, label: l.name })),
+                ]}
+              />
             </Box>
             {/* Quiz Status and Feedback Given filters hidden as requested */}
           </>
@@ -302,10 +265,12 @@ export function Filters({
                 placeholder="name"
                 style={{
                   padding: '8px 12px',
-                  border: '1px solid #dcdce4',
+                  border: `1px solid ${colors.neutral200}`,
                   borderRadius: '4px',
                   fontSize: '14px',
                   minWidth: '100%',
+                  color: colors.neutral800,
+                  background: colors.neutral0,
                 }}
               />
             </Box>
@@ -313,43 +278,27 @@ export function Filters({
               <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                 Course
               </Typography>
-              <select
-                value={filterCourse || ''}
-                onChange={e => setFilterCourse(e.target.value)}
-                style={{
-                  padding: '8px 12px',
-                  border: '1px solid #dcdce4',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  minWidth: '100%',
-                }}
-              >
-                {courses.map(c => (
-                  <option key={c.id} value={c.id}>{courseLabel(c)}</option>
-                ))}
-              </select>
+              <FilterSelect
+                value={filterCourse}
+                onChange={setFilterCourse}
+                options={courses.map((c) => ({ value: c.id, label: courseLabel(c) }))}
+              />
             </Box>
             <Box style={{ minWidth: 160 }}>
               <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                 Course Status
               </Typography>
-              <select
-                value={filterStatus || ''}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                style={{
-                  padding: '8px 12px',
-                  border: '1px solid #dcdce4',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  minWidth: '100%',
-                }}
-              >
-                <option value="">All Statuses</option>
-                <option value="Not_started">Not Started</option>
-                <option value="In_progress">In Progress</option>
-                <option value="Completed">Completed</option>
-                <option value="Failed">Failed</option>
-              </select>
+              <FilterSelect
+                value={filterStatus}
+                onChange={setFilterStatus}
+                options={[
+                  { value: '', label: 'All Statuses' },
+                  { value: 'Not_started', label: 'Not Started' },
+                  { value: 'In_progress', label: 'In Progress' },
+                  { value: 'Completed', label: 'Completed' },
+                  { value: 'Failed', label: 'Failed' },
+                ]}
+              />
             </Box>
             <Box style={{ minWidth: 200, display: 'flex', flexDirection: 'column' }}>
               <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
@@ -365,9 +314,11 @@ export function Filters({
                   width: 120,
                   height: 36,
                   padding: '8px 12px',
-                  border: '1px solid #dcdce4',
+                  border: `1px solid ${colors.neutral200}`,
                   borderRadius: 4,
                   boxSizing: 'border-box',
+                  color: colors.neutral800,
+                  background: colors.neutral0,
                 }}
               />
             </Box>
@@ -415,25 +366,17 @@ export function Filters({
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Course
                 </Typography>
-                <select
-                  value={filterCourse || ''}
-                  onChange={(e) => {
-                    setFilterCourse?.(e.target.value);
+                <FilterSelect
+                  value={filterCourse}
+                  onChange={(value) => {
+                    setFilterCourse?.(value);
                     if (setFilterModule) setFilterModule('');
                   }}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Courses</option>
-                  {courses.map((c) => (
-                    <option key={c.id} value={c.id}>{courseLabel(c)}</option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'All Courses' },
+                    ...courses.map((c) => ({ value: c.id, label: courseLabel(c) })),
+                  ]}
+                />
               </Box>
             )}
             {viewMode === 'personal' && filterCourse && setFilterModule && moduleOptions && moduleOptions.length > 0 && (
@@ -441,24 +384,17 @@ export function Filters({
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Module
                 </Typography>
-                <select
-                  value={filterModule || ''}
-                  onChange={(e) => setFilterModule(e.target.value)}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Modules</option>
-                  {moduleOptions.map((m) => (
-                    <option key={m.value || m.title || m} value={m.value ?? m.title ?? m}>
-                      {m.label ?? m.title ?? m.value ?? m}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={filterModule}
+                  onChange={setFilterModule}
+                  options={[
+                    { value: '', label: 'All Modules' },
+                    ...moduleOptions.map((m) => ({
+                      value: m.value ?? m.title ?? m,
+                      label: m.label ?? m.title ?? m.value ?? m,
+                    })),
+                  ]}
+                />
               </Box>
             )}
           </>
@@ -488,71 +424,42 @@ export function Filters({
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Unit Location
                 </Typography>
-                <select
-                  value={unitLocation || ''}
-                  onChange={(e) => onUnitLocationChange?.(e.target.value || '')}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Unit Locations</option>
-                  {unitLocations.map((l) => (
-                    <option key={l.id} value={String(l.id)}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={unitLocation}
+                  onChange={(value) => onUnitLocationChange?.(value || '')}
+                  options={[
+                    { value: '', label: 'All Unit Locations' },
+                    ...unitLocations.map((l) => ({ value: l.id, label: l.name })),
+                  ]}
+                />
               </Box>
             )}
             <Box style={{ minWidth: 180 }}>
               <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                 Pages
               </Typography>
-              <select
-                value={activityType || ''}
-                onChange={(e) => onActivityTypeChange?.(e.target.value || '')}
-                style={{
-                  padding: '8px 12px',
-                  border: '1px solid #dcdce4',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  minWidth: '100%',
-                }}
-              >
-                {activityTypeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <FilterSelect
+                value={activityType}
+                onChange={(value) => onActivityTypeChange?.(value || '')}
+                options={activityTypeOptions}
+              />
             </Box>
             {activityType === 'News' && onNewsIdChange && (
               <Box style={{ minWidth: 220 }}>
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   News
                 </Typography>
-                <select
-                  value={newsId || ''}
-                  onChange={(e) => onNewsIdChange(e.target.value || '')}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All News</option>
-                  {newsList.map((n) => (
-                    <option key={n.id} value={String(n.documentId ?? n.id)}>
-                      {n.title} {n.likesCount != null ? `(${n.likesCount} likes)` : ''}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={newsId}
+                  onChange={(value) => onNewsIdChange(value || '')}
+                  options={[
+                    { value: '', label: 'All News' },
+                    ...newsList.map((n) => ({
+                      value: n.documentId ?? n.id,
+                      label: `${n.title} ${n.likesCount != null ? `(${n.likesCount} likes)` : ''}`,
+                    })),
+                  ]}
+                />
               </Box>
             )}
             {departments.length > 0 && !activityTrackingEmployeeId && (
@@ -560,24 +467,14 @@ export function Filters({
                 <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
                   Department
                 </Typography>
-                <select
-                  value={department || ''}
-                  onChange={(e) => onDepartmentChange(e.target.value || '')}
-                  style={{
-                    padding: '8px 12px',
-                    border: '1px solid #dcdce4',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    minWidth: '100%',
-                  }}
-                >
-                  <option value="">All Departments</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                <FilterSelect
+                  value={department}
+                  onChange={(value) => onDepartmentChange(value || '')}
+                  options={[
+                    { value: '', label: 'All Departments' },
+                    ...departments.map((d) => ({ value: d.id, label: d.name })),
+                  ]}
+                />
               </Box>
             )}
           </>
@@ -587,24 +484,14 @@ export function Filters({
             <Typography variant="pi" textColor="neutral600" style={{ marginBottom: 4 }}>
               Unit Location
             </Typography>
-            <select
-              value={unitLocation || ''}
-              onChange={(e) => onUnitLocationChange?.(e.target.value || '')}
-              style={{
-                padding: '8px 12px',
-                border: '1px solid #dcdce4',
-                borderRadius: '4px',
-                fontSize: '14px',
-                minWidth: '100%',
-              }}
-            >
-              <option value="">All Unit Locations</option>
-              {unitLocations.map((l) => (
-                <option key={l.id} value={String(l.id)}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
+            <FilterSelect
+              value={unitLocation}
+              onChange={(value) => onUnitLocationChange?.(value || '')}
+              options={[
+                { value: '', label: 'All Unit Locations' },
+                ...unitLocations.map((l) => ({ value: l.id, label: l.name })),
+              ]}
+            />
           </Box>
         )}
       </Flex>
