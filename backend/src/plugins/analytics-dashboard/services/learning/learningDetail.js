@@ -739,7 +739,6 @@ module.exports = ({ strapi }) => {
       offlineModulesTotal: sum((e) => e.offlineModules),
       offlineProofPending: sum((e) => e.offlineProofPending),
       quizAttempts: sum((e) => e.quiz.attempts),
-      quizModulesPassed: sum((e) => e.quiz.passedModules),
       quizModulesTotal: sum((e) => e.quiz.quizModules),
       avgQuizScore: avg(scores),
       feedbackSubmitted: enrollments.filter((e) => e.feedback.submitted).length,

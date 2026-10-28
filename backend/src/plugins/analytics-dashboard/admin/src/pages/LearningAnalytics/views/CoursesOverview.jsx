@@ -6,6 +6,7 @@
  */
 import React, { useState } from 'react';
 import { Box, Button, Flex, Typography } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import { DataTable } from '../../../components/DataTable';
 import { DetailsModal } from '../../../components/DetailsModal';
 import { exportToExcel } from '../../../components/CompactTable';
@@ -17,9 +18,10 @@ const pctOf = (part, whole) => (whole ? Math.round((part / whole) * 100) : 0);
 
 /** Thin progress bar shown under the average progress figure. */
 function Bar({ value }) {
+  const { colors } = useTheme();
   return (
-    <Box style={{ height: 6, borderRadius: 3, background: '#dcdce4', overflow: 'hidden', marginTop: 4 }}>
-      <Box style={{ width: `${Math.max(0, Math.min(100, value))}%`, height: '100%', background: '#38A86F' }} />
+    <Box style={{ height: 6, borderRadius: 3, background: colors.neutral200, overflow: 'hidden', marginTop: 4 }}>
+      <Box style={{ width: `${Math.max(0, Math.min(100, value))}%`, height: '100%', background: colors.success600 }} />
     </Box>
   );
 }

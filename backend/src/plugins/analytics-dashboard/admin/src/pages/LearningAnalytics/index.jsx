@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Page, Layouts } from '@strapi/admin/strapi-admin';
 import { Box, Flex, Typography, Loader } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import * as XLSX from 'xlsx';
 import { useAnalytics, isAbortError } from '../../hooks/useAnalytics';
 import { Filters } from '../../components/Filters';
@@ -16,6 +17,7 @@ import { LearningPersonalView } from './views/LearningPersonalView';
 const dedupeList = (arr) => (Array.isArray(arr) ? arr.filter((x, i, a) => a.findIndex((y) => String(y?.id ?? y) === String(x?.id ?? x)) === i) : []);
 
 function LearningAnalyticsLoadingOverlay({ label = 'Loading analytics…' }) {
+  const { colors } = useTheme();
   return (
     <Box
       style={{
@@ -25,7 +27,7 @@ function LearningAnalyticsLoadingOverlay({ label = 'Loading analytics…' }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'rgba(255, 255, 255, 0.72)',
+        background: `color-mix(in srgb, ${colors.neutral0} 72%, transparent)`,
         borderRadius: '4px',
         pointerEvents: 'auto',
       }}

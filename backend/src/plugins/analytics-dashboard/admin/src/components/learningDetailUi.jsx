@@ -2,6 +2,7 @@
 /** Shared formatting and small visuals for the module-level Learning Analytics views. */
 import React from 'react';
 import { Badge, Box, Flex, Typography } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 
 export function formatDate(value) {
   if (!value) return '—';
@@ -76,11 +77,12 @@ export function ModuleTypeBadge({ type }) {
  * parts: [{ label, value, color }]
  */
 export function StackedBar({ parts, width = 220 }) {
+  const { colors } = useTheme();
   const total = parts.reduce((s, p) => s + (p.value || 0), 0);
   const title = parts.filter((p) => p.value).map((p) => `${p.label}: ${p.value}`).join(' · ');
   return (
     <Box title={title} style={{ width, maxWidth: '100%' }}>
-      <Flex style={{ height: 10, borderRadius: 5, overflow: 'hidden', background: '#eaeaef' }}>
+      <Flex style={{ height: 10, borderRadius: 5, overflow: 'hidden', background: colors.neutral200 }}>
         {total > 0 &&
           parts.map((p) =>
             p.value ? <Box key={p.label} style={{ width: `${(p.value / total) * 100}%`, background: p.color, height: '100%' }} /> : null
@@ -99,10 +101,11 @@ export const PART_COLORS = {
 };
 
 export function ProgressBar({ value }) {
+  const { colors } = useTheme();
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   return (
     <Flex gap={2} alignItems="center">
-      <Box style={{ width: 90, height: 8, borderRadius: 4, background: '#eaeaef', overflow: 'hidden' }}>
+      <Box style={{ width: 90, height: 8, borderRadius: 4, background: colors.neutral200, overflow: 'hidden' }}>
         <Box style={{ width: `${v}%`, height: '100%', background: v === 100 ? PART_COLORS.completed : PART_COLORS.inProgress }} />
       </Box>
       <Typography variant="pi">{`${v}%`}</Typography>

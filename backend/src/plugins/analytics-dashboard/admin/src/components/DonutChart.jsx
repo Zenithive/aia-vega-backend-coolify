@@ -1,9 +1,11 @@
 import React from 'react';
 import { Box, Typography } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { CHART_COLORS } from './chartColors';
 
 export function DonutChart({ data = [], title, height = 280, showActiveInTooltip = false }) {
+  const { colors } = useTheme();
   // Filter out 0-value segments to avoid overlapping labels (e.g. personal view: one status 100%, others 0%)
   const chartData = (data || []).filter((d) => (d.value || 0) > 0);
   const total = chartData.reduce((sum, d) => sum + (d.value || 0), 0);
@@ -50,7 +52,7 @@ export function DonutChart({ data = [], title, height = 280, showActiveInTooltip
                     const p = payload[0].payload;
                     if (p.activeValue === undefined) return null;
                     return (
-                      <Box padding={2} background="neutral0" hasRadius style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0' }}>
+                      <Box padding={2} background="neutral0" hasRadius style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.25)', border: `1px solid ${colors.neutral200}` }}>
                         <Typography variant="pi" fontWeight="semiBold">{p.name}</Typography>
                         <Typography variant="pi" textColor="neutral600">Count: {p.value}</Typography>
                         <Typography variant="pi" textColor="neutral600">Active: {p.activeValue}</Typography>

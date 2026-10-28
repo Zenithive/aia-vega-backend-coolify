@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Box, Typography, Button, Flex } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import { useAnalytics } from '../hooks/useAnalytics';
 
 
 export function EmployeeSearch({ value, onChange, onEmployeeFound, company }) {
+  const { colors } = useTheme();
   const { fetchEmployees } = useAnalytics();
   const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -116,9 +118,11 @@ export function EmployeeSearch({ value, onChange, onEmployeeFound, company }) {
           style={{
             flex: 1,
             padding: '8px 12px',
-            border: '1px solid #dcdce4',
+            border: `1px solid ${colors.neutral200}`,
             borderRadius: '4px',
             fontSize: '14px',
+            color: colors.neutral800,
+            background: colors.neutral0,
           }}
         />
         <Button onClick={handleSearch} loading={loading} size="S">

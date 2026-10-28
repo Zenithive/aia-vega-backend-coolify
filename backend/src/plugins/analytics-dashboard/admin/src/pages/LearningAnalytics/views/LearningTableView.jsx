@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { Box, Badge, Flex, Typography } from '@strapi/design-system';
-import { CourseStatusBadge, ProgressBar, formatDate, formatMinutes, formatScore, plural } from '../../../components/learningDetailUi';
-import { CompactTable, DetailGrid } from '../../../components/CompactTable';
+import { CourseStatusBadge, formatDate, formatMinutes, formatScore, plural } from '../../../components/learningDetailUi';
+import { CompactTable } from '../../../components/CompactTable';
 
 /**
  * Learning Analytics – Employee Table view.
@@ -102,12 +102,13 @@ export function LearningTableView({
     <Box marginBottom={6}>
       <CompactTable
         title="Employee learning summary"
-        subtitle="Each employee in the selected course. Click a row for more."
+        subtitle="Learning progress and activity for each employee."
         rows={rows}
         allRows={exportRows}
         getRowKey={(row) => row.employeeId}
         emptyMessage="No employees found. Try adjusting filters or search."
         exportFileName="employee-learning-summary.xlsx"
+        tableMinWidth={2300}
         pagination={{
           page: data?.page || 1,
           pageSize: data?.pageSize || 10,
@@ -128,92 +129,138 @@ export function LearningTableView({
           {
             key: 'employeeName',
             label: 'Employee',
-            width: '28%',
+            width: 280,
             render: (row) => (
               <Flex direction="column" alignItems="flex-start" gap={1}>
-                <Typography fontWeight="semiBold">{row.employeeName}</Typography>
+                <Typography fontWeight="semiBold">{row.employeeName || '—'}</Typography>
                 <Typography variant="pi" textColor="neutral600">
-                  {[getEmployeeIdValue(row, normalizedCompany), getLocationValue(row, normalizedCompany)]
-                    .filter((v) => v && v !== '—')
-                    .join(' · ') || '—'}
+                  {getEmployeeIdValue(row, normalizedCompany) || '—'}
                 </Typography>
-                {row.accountStatus && row.accountStatus !== 'Active' && renderAccountStatusTags(row)}
               </Flex>
+            ),
+          },
+          {
+            key: 'email',
+            label: 'Email',
+            width: 200,
+            render: (row) => row.email || '—',
+          },
+          {
+            key: 'company',
+            label: 'Company',
+            width: 120,
+            render: (row) => row.company || '—',
+          },
+          {
+            key: 'location',
+            label: 'Location',
+            width: 150,
+            render: (row) => getLocationValue(row, normalizedCompany) || '—',
+          },
+          {
+            key: 'accountStatus',
+            label: 'Account status',
+            width: 130,
+            render: (row) => renderAccountStatusTags(row),
+          },
+          {
+            key: 'status',
+            label: 'Course status',
+            width: 120,
+            render: (row) => (
+              <CourseStatusBadge
+                status={row.coursesCompleted ? 'Completed' : row.coursesInProgress ? 'In_progress' : 'Not_started'}
+              />
             ),
           },
           {
             key: 'progressPercent',
             label: 'Progress',
-            width: '22%',
-            render: (row) => (
-              <Flex direction="column" alignItems="flex-start" gap={1}>
-                <CourseStatusBadge
-                  status={row.coursesCompleted ? 'Completed' : row.coursesInProgress ? 'In_progress' : 'Not_started'}
-                />
-                <ProgressBar value={row.progressPercent} />
-                <Typography variant="pi" textColor="neutral600">
-                  {`${(row.onlineModulesCompleted ?? 0) + (row.offlineModulesCompleted ?? 0)}/${(row.onlineModulesTotal ?? 0) + (row.offlineModulesTotal ?? 0)} modules`}
-                </Typography>
-                {row.coursesOverdue ? (
-                  <Typography variant="pi" textColor="danger600">Overdue</Typography>
-                ) : null}
-              </Flex>
-            ),
+            width: 120,
+            render: (row) => `${row.progressPercent ?? 0}%`,
+          },
+          {
+            key: 'overdue',
+            label: 'Overdue',
+            width: 90,
+            render: (row) => row.coursesOverdue
+              ? <Typography variant="pi" textColor="danger600">Yes</Typography>
+              : 'No',
+          },
+          {
+            key: 'onlineModules',
+            label: 'Online modules',
+            width: 120,
+            render: (row) => `${row.onlineModulesCompleted ?? 0}/${row.onlineModulesTotal ?? 0}`,
+          },
+          {
+            key: 'offlineModules',
+            label: 'Offline modules',
+            width: 120,
+            render: (row) => `${row.offlineModulesCompleted ?? 0}/${row.offlineModulesTotal ?? 0}`,
+          },
+          {
+            key: 'offlineProofPending',
+            label: 'Waiting for proof',
+            width: 120,
+            render: (row) => row.offlineProofPending > 0 ? plural(row.offlineProofPending, 'module') : '—',
+          },
+          {
+            key: 'quizAttempts',
+            label: 'Quiz attempts',
+            width: 110,
+            render: (row) => row.quizAttempts ? plural(row.quizAttempts, 'attempt') : '—',
           },
           {
             key: 'avgQuizScore',
-            label: 'Quiz',
-            width: '15%',
-            render: (row) =>
-              row.quizAttempts ? (
-                <Flex direction="column" alignItems="flex-start" title="Average of the best score in each quiz">
-                  <Typography variant="pi">{`Score ${formatScore(row.avgQuizScore)}`}</Typography>
-                  <Typography variant="pi" textColor="neutral600">
-                    {`${row.quizModulesPassed ?? 0}/${row.quizModulesTotal ?? 0} passed · ${plural(row.quizAttempts, 'attempt')}`}
-                  </Typography>
-                </Flex>
-              ) : (
-                <Typography variant="pi" textColor="neutral500">—</Typography>
-              ),
+            label: 'Avg quiz score',
+            width: 120,
+            render: (row) => row.quizAttempts ? formatScore(row.avgQuizScore) : '—',
+          },
+          {
+            key: 'feedback',
+            label: 'Feedback',
+            width: 160,
+            render: (row) => {
+              const given = Number(row.feedbackSubmitted) || 0;
+              const pending = Number(row.feedbackPending) || 0;
+              if (!given && !pending) return '—';
+              return `${given} given · ${pending} pending`;
+            },
           },
           {
             key: 'courseCompletionTimeMinutes',
             label: 'Learning time',
-            width: '13%',
+            width: 120,
             sortable: true,
             render: (row) => formatMinutes(row.courseCompletionTimeMinutes),
           },
           {
+            key: 'contentMinutes',
+            label: 'Content time',
+            width: 120,
+            render: (row) => formatMinutes(row.contentMinutes),
+          },
+          {
+            key: 'quizMinutes',
+            label: 'Quiz time',
+            width: 120,
+            render: (row) => formatMinutes(row.quizMinutes),
+          },
+          {
             key: 'lastActivityAt',
             label: 'Last activity',
-            width: '14%',
+            width: 140,
             render: (row) =>
               row.lastActivityAt ? (
                 <Typography variant="pi" textColor={(row.inactiveDays ?? 0) >= 14 && row.coursesInProgress ? 'danger600' : undefined}>
-                  {row.inactiveDays === 0 ? 'Today' : `${row.inactiveDays}d ago`}
+                  {`${formatDate(row.lastActivityAt)} (${row.inactiveDays === 0 ? 'Today' : `${row.inactiveDays}d ago`})`}
                 </Typography>
               ) : (
                 <Typography variant="pi" textColor="neutral500">No activity</Typography>
               ),
           },
         ]}
-        renderExpanded={(row) => (
-          <DetailGrid
-            items={[
-              ['Email', row.email],
-              ['Company', row.company],
-              ['Account', row.accountStatus || 'Active'],
-              ['Online modules done', `${row.onlineModulesCompleted ?? 0}/${row.onlineModulesTotal ?? 0}`],
-              ['Offline modules done', row.offlineModulesTotal ? `${row.offlineModulesCompleted ?? 0}/${row.offlineModulesTotal}` : '—'],
-              row.offlineProofPending > 0 && ['Waiting for offline proof', plural(row.offlineProofPending, 'module')],
-              ['Quiz modules passed', row.quizModulesTotal ? `${row.quizModulesPassed ?? 0}/${row.quizModulesTotal}` : '—'],
-              ['Feedback', `${row.feedbackSubmitted ?? 0} given`],
-              ['Content time', formatMinutes(row.contentMinutes)],
-              ['Quiz time', formatMinutes(row.quizMinutes)],
-              ['Last activity', formatDate(row.lastActivityAt)],
-            ]}
-          />
-        )}
         exportColumns={[
           { label: 'Employee', value: (r) => r.employeeName },
           { label: 'Employee ID', value: (r) => getEmployeeIdValue(r, normalizedCompany) },
@@ -229,7 +276,6 @@ export function LearningTableView({
           { label: 'Waiting for offline proof', value: (r) => r.offlineProofPending },
           { label: 'Quiz attempts', value: (r) => r.quizAttempts },
           { label: 'Avg quiz score %', value: (r) => r.avgQuizScore },
-          { label: 'Quiz modules passed', value: (r) => `${r.quizModulesPassed ?? 0}/${r.quizModulesTotal ?? 0}` },
           { label: 'Feedback given', value: (r) => r.feedbackSubmitted },
           { label: 'Feedback pending', value: (r) => r.feedbackPending },
           { label: 'Learning time (min)', value: (r) => r.courseCompletionTimeMinutes },
