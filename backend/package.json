@@ -6,11 +6,11 @@
   "scripts": {
     "predevelop": "node scripts/cleanup-db-sessions.js || true",
     "prestart": "node scripts/cleanup-db-sessions.js || true",
-    "build": "strapi build",
+    "build": "node init && strapi build",
     "postbuild": "node scripts/patch-admin-title.js",
     "console": "strapi console",
     "deploy": "strapi deploy",
-    "dev": "strapi develop",
+    "dev": "node init && strapi develop",
     "develop": "strapi develop",
     "seed:example": "node ./scripts/seed.js",
     "seed:portal": "node ./scripts/seed-portal.js",
@@ -20,7 +20,7 @@
     "seed:analytics": "node scripts/analytics-seed.js",
     "check:employee-data": "node ./scripts/check-employee-table-data.js",
     "check:activity-log": "node ./scripts/check-activity-log-data.js",
-    "start": "strapi start",
+    "start": "node init && strapi start",
     "strapi": "strapi",
     "upgrade": "npx @strapi/upgrade latest",
     "upgrade:dry": "npx @strapi/upgrade latest --dry"
