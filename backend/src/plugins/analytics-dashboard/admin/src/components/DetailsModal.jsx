@@ -8,6 +8,7 @@
  */
 import React from 'react';
 import { Badge, Box, Button, Flex, Modal, Typography } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import { CHART_COLORS } from './chartColors';
 
 function Tile({ label, value, note }) {
@@ -35,6 +36,7 @@ function Tile({ label, value, note }) {
 }
 
 function Section({ title, items, accent }) {
+  const { colors } = useTheme();
   return (
     <Box
       background="neutral0"
@@ -46,7 +48,7 @@ function Section({ title, items, accent }) {
       marginBottom={4}
       style={{ borderLeft: `4px solid ${accent}` }}
     >
-      <Box paddingTop={3} paddingBottom={3} paddingLeft={4} paddingRight={4} style={{ borderBottom: '1px solid #eaeaef' }}>
+      <Box paddingTop={3} paddingBottom={3} paddingLeft={4} paddingRight={4} style={{ borderBottom: `1px solid ${colors.neutral200}` }}>
         <Typography variant="delta" tag="h4">
           {title}
         </Typography>

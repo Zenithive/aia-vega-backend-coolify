@@ -456,16 +456,17 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
     } catch (e) {
       full = progress;
     }
-    // Check feedback existence via a direct query (the oneToOne relation may not be linked)
-    let hasFeedback = !!full.feedback_submission;
-    if (!hasFeedback) {
+    // The oneToOne relation may not be linked, so also look up the submission directly.
+    let feedbackSubmission = full.feedback_submission ?? null;
+    if (!feedbackSubmission) {
       try {
-        const fbCount = await strapi.db.query('api::feedback-submission.feedback-submission').count({
+        feedbackSubmission = await strapi.db.query('api::feedback-submission.feedback-submission').findOne({
           where: { course: numCourseId, users_permissions_user: numUserId },
+          select: ['id'],
         });
-        hasFeedback = fbCount > 0;
       } catch { /* ignore */ }
     }
+    const hasFeedback = !!feedbackSubmission;
     // Only downgrade Completed → In_progress when feedback IS compulsory but missing
     let feedbackCompulsory = false;
     try {
@@ -494,10 +495,7 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
       course: full.course ?? null,
       user: full.user ?? null,
       quiz_submission: full.quiz_submission ?? null,
-      feedback_submission: full.feedback_submission ?? null,
-      // The feedback_submission relation is not always linked, so send the checked value too.
-      feedback_submitted: hasFeedback,
-      feedback_compulsory: feedbackCompulsory,
+      feedback_submission: feedbackSubmission,
       ...(await moduleStateFor(full)),
     });
   },

@@ -4,10 +4,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { DateRange } from 'react-date-range';
+import { useTheme } from 'styled-components';
 import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 
 export default function DateRangeInput({ value, onChange }) {
+  const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const [pickingEnd, setPickingEnd] = useState(false);
   const ref = useRef();
@@ -70,28 +72,46 @@ export default function DateRangeInput({ value, onChange }) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          border: '1px solid #dcdce4',
+          border: `1px solid ${colors.neutral200}`,
           borderRadius: '4px',
-          background: '#fff',
+          background: colors.neutral0,
           padding: '0 12px',
           minWidth: '220px',
           height: '40px',
           fontSize: '16px',
-          color: formatted ? '#222' : '#8e8ea9',
+          color: formatted ? colors.neutral800 : colors.neutral500,
           cursor: 'pointer',
           fontFamily: 'inherit',
           fontWeight: 400,
-          outline: open ? '2px solid #4945ff' : 'none',
+          outline: open ? `2px solid ${colors.primary600}` : 'none',
           boxShadow: 'none',
           transition: 'outline 0.2s',
         }}
         onClick={() => { setOpen((v) => !v); setPickingEnd(false); }}
       >
-        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" style={{marginRight:8, color:'#8e8ea9'}}><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M16 3v4M8 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M3 9h18" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" style={{ marginRight: 8, color: colors.neutral500 }}><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M16 3v4M8 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M3 9h18" stroke="currentColor" strokeWidth="1.5"/></svg>
         {formatted || 'MM/DD/YYYY - MM/DD/YYYY'}
       </button>
       {open && (
-        <div style={{ position: 'absolute', zIndex: 10, top: 44, left: 0, background: '#fff', border: '1px solid #dcdce4', borderRadius: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <div style={{ position: 'absolute', zIndex: 10, top: 44, left: 0, background: colors.neutral0, color: colors.neutral800, border: `1px solid ${colors.neutral200}`, borderRadius: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
+          <style>{`
+            .rdrCalendarWrapper,
+            .rdrDateDisplayWrapper,
+            .rdrMonthAndYearWrapper,
+            .rdrMonth {
+              background-color: ${colors.neutral0};
+              color: ${colors.neutral800};
+            }
+            .rdrMonthName,
+            .rdrWeekDay,
+            .rdrDayNumber span {
+              color: ${colors.neutral800};
+            }
+            .rdrDayPassive .rdrDayNumber span,
+            .rdrDayDisabled .rdrDayNumber span {
+              color: ${colors.neutral500};
+            }
+          `}</style>
           <DateRange
             ranges={[{
               startDate: value?.start || new Date(),
@@ -110,8 +130,8 @@ export default function DateRangeInput({ value, onChange }) {
             <button
               type="button"
               style={{
-                background: '#f6f6f9',
-                color: '#4945ff',
+                background: colors.neutral100,
+                color: colors.primary600,
                 border: 'none',
                 borderRadius: 4,
                 padding: '6px 16px',

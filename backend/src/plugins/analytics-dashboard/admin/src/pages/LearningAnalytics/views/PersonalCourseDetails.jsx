@@ -246,12 +246,6 @@ export function PersonalCourseDetails({ courses = [], summary }) {
               colorIndex={1}
             />
           )}
-          <StatCard
-            label="Quizzes"
-            value={formatScore(summary.avgQuizScore)}
-            subtext={`avg score · ${summary.quizModulesPassed}/${summary.quizModulesTotal} passed · ${plural(summary.quizAttempts, 'attempt')}`}
-            colorIndex={5}
-          />
           <StatCard label="Feedback" value={`${summary.feedbackSubmitted} given`} subtext={`${summary.feedbackPending} pending`} colorIndex={1} />
           <StatCard
             label="Learning time"
