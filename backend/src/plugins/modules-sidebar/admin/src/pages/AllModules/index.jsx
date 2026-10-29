@@ -5,6 +5,7 @@
 import React, { useMemo, Children, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import { useTheme } from 'styled-components';
 
 import { Page, Layouts } from '@strapi/admin/strapi-admin';
 import { Box, Typography, Flex, Button } from '@strapi/design-system';
@@ -28,6 +29,7 @@ import { SectionConfigModal } from '../../components/SectionConfigModal';
 
 const AdminLink = ({ to, label }) => {
   const location = useLocation();
+  const { colors } = useTheme();
   const isActive = location.pathname === to;
   
   // Add query parameter to signal hiding the sidebar
@@ -92,19 +94,11 @@ const AdminLink = ({ to, label }) => {
       onMouseEnter={(e) => {
         if (!isActive) {
           e.currentTarget.style.backgroundColor = 'var(--strapi-neutral-100)';
-          const labelEl = e.currentTarget.querySelector('[data-role="module-link-label"]');
-          if (labelEl) {
-            if (labelEl && labelEl.style) labelEl.style.color = '#4945ff';
-          }
         }
       }}
       onMouseLeave={(e) => {
         if (!isActive) {
           e.currentTarget.style.backgroundColor = 'transparent';
-          const labelEl = e.currentTarget.querySelector('[data-role="module-link-label"]');
-          if (labelEl) {
-            if (labelEl && labelEl.style) labelEl.style.color = '#212134';
-          }
         }
       }}
     >
@@ -118,10 +112,9 @@ const AdminLink = ({ to, label }) => {
         />
         <Typography 
           variant="omega" 
-          textColor={isActive ? 'primary600' : 'neutral900'}
+          textColor="neutral900"
           fontWeight={isActive ? 'semiBold' : 'regular'}
-          data-role="module-link-label"
-          style={{ color: isActive ? '#4945ff' : '#212134' }}
+          style={{ color: colors.neutral900 }}
         >
           {label}
         </Typography>
@@ -161,9 +154,6 @@ const Section = ({ title, children, icon: Icon }) => {
       borderStyle="solid"
       style={{
         transition: 'all 0.2s ease',
-        backgroundColor: '#ffffff',
-        borderColor: '#e0e0e0',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
@@ -186,7 +176,6 @@ const Section = ({ title, children, icon: Icon }) => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: '#f0f0ff',
               borderRadius: '4px',
             }}
           >
@@ -194,8 +183,8 @@ const Section = ({ title, children, icon: Icon }) => {
               aria-hidden
               width="18px"
               height="18px"
-              fill="#4945ff"
-              style={{ color: '#4945ff' }}
+              fill="currentColor"
+              style={{ color: 'var(--strapi-primary-600)' }}
             />
           </Box>
         )}
@@ -203,7 +192,7 @@ const Section = ({ title, children, icon: Icon }) => {
           variant="sigma"
           textColor="neutral800"
           fontWeight="semiBold"
-          style={{ flex: 1, fontSize: '13px', color: '#32324d', letterSpacing: '0.01em' }}
+          style={{ flex: 1, fontSize: '13px', letterSpacing: '0.01em' }}
         >
           {title}
         </Typography>
