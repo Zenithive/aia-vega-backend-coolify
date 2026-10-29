@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Layouts } from '@strapi/strapi/admin';
+import { useTheme } from 'styled-components';
 import {
   Box,
   Typography,
@@ -39,6 +40,7 @@ const normalizeRejectionReason = (value) => {
 };
 
 export default function ProfileEditRequestsPage() {
+  const { colors } = useTheme();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -752,10 +754,12 @@ export default function ProfileEditRequestsPage() {
                 placeholder={companyFilter.toLowerCase() === 'aia' ? 'Employee code (digits)' : companyFilter.toLowerCase() === 'vega' ? 'EMP ID (EMP12345)' : 'User, company, ID, etc.'}
                 style={{
                   padding: '8px 12px',
-                  border: '1px solid #dcdce4',
+                  border: `1px solid ${colors.neutral200}`,
                   borderRadius: '4px',
                   fontSize: '14px',
                   width: '100%',
+                  backgroundColor: colors.neutral0,
+                  color: colors.neutral800,
                 }}
               />
             </Box>
@@ -1038,11 +1042,13 @@ export default function ProfileEditRequestsPage() {
                         placeholder="Explain why this request is still pending"
                         style={{
                           width: '100%',
-                          border: '1px solid #dcdce4',
+                          border: `1px solid ${colors.neutral200}`,
                           borderRadius: '4px',
                           padding: '8px 12px',
                           fontSize: '14px',
                           resize: 'vertical',
+                          backgroundColor: colors.neutral0,
+                          color: colors.neutral800,
                         }}
                       />
                       {pendingCommentError ? (
@@ -1079,11 +1085,13 @@ export default function ProfileEditRequestsPage() {
                         placeholder="Enter the reason that will be sent to the requester"
                         style={{
                           width: '100%',
-                          border: '1px solid #dcdce4',
+                          border: `1px solid ${colors.neutral200}`,
                           borderRadius: '4px',
                           padding: '8px 12px',
                           fontSize: '14px',
                           resize: 'vertical',
+                          backgroundColor: colors.neutral0,
+                          color: colors.neutral800,
                         }}
                       />
                       {rejectionReasonError ? (

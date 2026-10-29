@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Layouts } from '@strapi/strapi/admin';
 import { Box, Typography, Table, Thead, Tbody, Tr, Th, Td, Flex, Loader, Badge, SingleSelect, SingleSelectOption } from '@strapi/design-system';
+import { useTheme } from 'styled-components';
 import DateRangeInput from '../../../../analytics-dashboard/admin/src/components/DateRangeInput';
 import { getFetchClient } from '@strapi/strapi/admin';
 import DataTable from '../../../../analytics-dashboard/admin/src/components/DataTable';
@@ -10,7 +11,8 @@ import DataTable from '../../../../analytics-dashboard/admin/src/components/Data
 const TABLE_FONT_STYLE = { fontSize: '14px' };
 
 const AuditLogPage = () => {
-    const [search, setSearch] = useState('');
+  const { colors } = useTheme();
+  const [search, setSearch] = useState('');
   const [logs, setLogs] = useState([]);
   const [allLogs, setAllLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -220,10 +222,12 @@ const AuditLogPage = () => {
                   placeholder={companyFilter.toLowerCase() === 'aia' ? 'Employee code (digits)' : companyFilter.toLowerCase() === 'vega' ? 'EMP ID (EMP12345)' : 'User, company, ID, etc.'}
                   style={{
                     padding: '8px 12px',
-                    border: '1px solid #dcdce4',
+                    border: `1px solid ${colors.neutral200}`,
                     borderRadius: '4px',
                     fontSize: '14px',
                     width: '100%',
+                    backgroundColor: colors.neutral0,
+                    color: colors.neutral800,
                   }}
                 />
               </Box>
@@ -272,7 +276,7 @@ const AuditLogPage = () => {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                    backgroundColor: `color-mix(in srgb, ${colors.neutral0} 70%, transparent)`,
                     zIndex: 10,
                     borderRadius: '4px',
                   }}
