@@ -134,5 +134,6 @@ frontend/node_modules/
 .next/
 node_modules/
 .env
+.env*
 .env.local
 .DS_Store
