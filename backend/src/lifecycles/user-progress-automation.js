@@ -190,7 +190,7 @@ async function processPublishedAssignment(strapi, result, params = {}, { payload
       await sendDueDateChangedNotifications(strapi, result, {
         courseId: rawCourseId,
         courseIds: [rawCourseId],
-        userIds: dueDateChangedUserIds,
+        userIds,
         due_date: dueDate,
         targetType,
       });
@@ -274,7 +274,7 @@ async function notifyAssignmentUsersForCourse(strapi, {
 
   const usersWithEmail = await strapi.db.query('plugin::users-permissions.user').findMany({
     where: { id: { $in: recipientUserIds } },
-    select: ['id', 'email'],
+    select: ['id', 'email', 'username'],
   });
   if (!usersWithEmail.length) return;
 
@@ -323,6 +323,7 @@ async function sendDueDateChangedNotifications(strapi, result, payload) {
         assignedBy: null,
       },
       targetType,
+      excludeCompletedUsers: false,
     });
   }
 }

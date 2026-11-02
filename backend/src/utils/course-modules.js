@@ -154,6 +154,45 @@ async function updateProgressRows(strapi, progress, data) {
   }
 }
 
+async function notifyCourseCompletion(strapi, userId, courseId, courseTitle = null) {
+  try {
+    const notifUtil = strapi.utils?.notification;
+    if (!notifUtil) return;
+
+    const [user, course] = await Promise.all([
+      strapi.db.query('plugin::users-permissions.user').findOne({
+        where: { id: Number(userId) },
+        select: ['id', 'email', 'username'],
+      }),
+      strapi.db.query(COURSE_UID).findOne({
+        where: { id: Number(courseId) },
+        select: ['title', 'course_version'],
+      }),
+    ]);
+    if (!user?.id) return;
+
+    const resolvedCourseTitle = courseTitle || course?.title || `Course #${courseId}`;
+    const courseVersion = course?.course_version || null;
+    await notifUtil.sendNotification(
+      'course_completed',
+      'Course Completed',
+      `Congratulations! You have successfully completed "${resolvedCourseTitle}".`,
+      [{ id: user.id, email: user.email }],
+      {
+        courseId: Number(courseId),
+        courseTitle: resolvedCourseTitle,
+        courseVersion,
+        userId: user.id,
+        userName: user.username || user.email || null,
+      },
+      [],
+      { sendEmail: true, sendSocket: true }
+    );
+  } catch (err) {
+    strapi.log.error('course-modules: completion notification failed:', err?.message || err);
+  }
+}
+
 /** An offline completion record counts only once proof files are attached. */
 function hasProof(record) {
   return Array.isArray(record?.proof) && record.proof.length > 0;
@@ -382,6 +421,9 @@ async function recomputeProgress(strapi, { userId, courseId, progress: givenProg
   }
 
   await updateProgressRows(strapi, progress, data);
+  if (summary.allCompleted && progress.progress_status !== 'Completed') {
+    await notifyCourseCompletion(strapi, userId, numCourseId, course.title);
+  }
   return { ...summary, progress_status: data.progress_status, nextStep: nextStepFor(summary, course) };
 }
 
@@ -445,6 +487,7 @@ module.exports = {
   loadCourse,
   loadProgress,
   updateProgressRows,
+  notifyCourseCompletion,
   computeModuleStates,
   deriveModuleStates,
   nextStepFor,

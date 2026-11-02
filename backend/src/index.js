@@ -19,6 +19,11 @@ const { syncVegaEmployees } = require('./cron-tasks/sync-vega-employees');
 const { populateAnswerCorrectField } = require('./utils/quiz-submission-correctness');
 const { cleanupFakeEmails } = require('./cron-tasks/cleanup-fake-emails');
 const { syncAiaEmployeePhotos } = require('./cron-tasks/sync-aia-employee-photos');
+const {
+  sendCourseDueDateReminders,
+  sendCourseDueDateExpiredNotifications,
+  sendCourseNotStartedHalfwayNotifications,
+} = require('./cron-tasks/course-due-date-reminders');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -690,6 +695,14 @@ module.exports = {
             await syncVegaEmployees(s);
           },
           options: { rule: '0 0 22 * * *', tz: CRON_TZ },
+        },
+        courseDueDateReminderDaily: {
+          task: async ({ strapi: s }) => {
+            await sendCourseDueDateReminders(s, new Date(), CRON_TZ);
+            await sendCourseDueDateExpiredNotifications(s, new Date(), CRON_TZ);
+            await sendCourseNotStartedHalfwayNotifications(s, new Date(), CRON_TZ);
+          },
+          options: { rule: '0 0 8 * * *', tz: CRON_TZ },
         },
       };
 

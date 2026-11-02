@@ -3,9 +3,8 @@
 
 const {
   isEmailEnabled: isEmailEnabledFromTemplate,
+  isLearnerEmailNotificationAllowed,
   buildUserNotificationEmailHtml,
-  buildAdminNotificationEmailHtml,
-  buildAdminEmailPlainText,
 } = require('./email-template');
 
 /**
@@ -67,6 +66,9 @@ module.exports = (strapi) => {
         }
         if (courseRow?.title && !out.courseTitle) {
           out.courseTitle = courseRow.title;
+        }
+        if (courseRow?.course_version && !out.courseVersion) {
+          out.courseVersion = courseRow.course_version;
         }
         if (courseRow?.documentId && !out.courseDocumentId) {
           out.courseDocumentId = courseRow.documentId;
@@ -292,7 +294,7 @@ module.exports = (strapi) => {
       if (!dept?.name) return [];
       const users = await strapi.db.query(USER_UID).findMany({
         where: { department: { $eqi: dept.name }, blocked: { $ne: true } },
-        select: ['id', 'email'],
+        select: ['id', 'email', 'username'],
       });
       return users || [];
     } catch (err) {
@@ -314,7 +316,7 @@ module.exports = (strapi) => {
       if (!company?.name) return [];
       const users = await strapi.db.query(USER_UID).findMany({
         where: { company: company.name, blocked: { $ne: true } },
-        select: ['id', 'email'],
+        select: ['id', 'email', 'username'],
       });
       return users || [];
     } catch (err) {
@@ -346,7 +348,7 @@ module.exports = (strapi) => {
       }
       const users = await strapi.db.query(USER_UID).findMany({
         where,
-        select: ['id', 'email'],
+        select: ['id', 'email', 'username'],
       });
       return users || [];
     } catch (err) {
@@ -356,18 +358,11 @@ module.exports = (strapi) => {
   }
 
   /**
-   * Build a readable plain-text body for admin notifications.
-   */
-  function buildAdminEmailBody(title, message, meta = {}) {
-    return buildAdminEmailPlainText(title, message, meta);
-  }
-
-  /**
    * Main send notification function.
-   * - User notifications (toUser): stored for portal bell + email + socket to user.
-   * - Admin notifications (admin_user, forRole): stored for Strapi admin bell + email to admin/LM/HR.
+   * - User notifications (toUser): stored for portal bell + eligible learner email + socket.
+   * - Admin notifications (admin_user, forRole): stored for Strapi admin bell + socket.
    * Targeting: admin gets all; HR gets news_liked; LM gets course-related (feedback, quiz submit, quiz reattempt).
-   * Admin emails are always sent when adminRoles are provided (sendEmail option applies to both user and admin).
+   * Email is restricted to learner course-assignment, completion and due-date reminder events.
    * @param {string} type - Notification type (enum)
    * @param {string} title - Notification title
    * @param {string} message - Notification message
@@ -375,13 +370,15 @@ module.exports = (strapi) => {
    * @param {Object} meta - Additional metadata
    * @param {Array} adminRoles - Admin role codes: ['admin','LMadmin','HRadmin']
    * @param {Object} options - { sendEmail: true, sendSocket: true }
-   *   Email is sent only when options.sendEmail is true AND process.env.EMAIL_ENABLED is true.
+   *   Learner email is limited to course assignment, completion and due-date reminders, and
+   *   requires options.sendEmail plus process.env.EMAIL_ENABLED.
    *   In-app (DB) and socket delivery are independent of EMAIL_ENABLED.
    */
   async function sendNotification(type, title, message, usersArray = [], meta = {}, adminRoles = [], options = {}) {
     const { sendEmail: doEmail = true, sendSocket: doSocket = true } = options;
     const globalEmailEnabled = isEmailEnabled();
-    const shouldSendEmail = doEmail && globalEmailEnabled;
+    const shouldSendEmail =
+      doEmail && globalEmailEnabled && isLearnerEmailNotificationAllowed(type);
     console.log(`[NOTIFICATION] 🔔 sendNotification called`);
     console.log(`[NOTIFICATION]   → type:         ${type}`);
     console.log(`[NOTIFICATION]   → title:        ${title}`);
@@ -398,6 +395,19 @@ module.exports = (strapi) => {
       const userId = user?.id ?? user?.documentId;
       if (!userId) continue;
       try {
+        let recipientName = user?.username || user?.employee_name || user?.name || null;
+        if (!recipientName && enrichedMeta.userId == null) {
+          const userRow = await strapi.db.query(USER_UID).findOne({
+            where: { id: Number(userId) },
+            select: ['id', 'username', 'email'],
+          });
+          recipientName = userRow?.username || userRow?.email || null;
+        }
+        const userMeta = {
+          ...enrichedMeta,
+          ...(recipientName ? { userName: recipientName } : {}),
+        };
+        const userPayload = { type, title, message, meta: userMeta };
         const notification = await strapi.entityService.create(NOTIFICATION_UID, {
           data: {
             type,
@@ -405,15 +415,17 @@ module.exports = (strapi) => {
             message,
             is_read: false,
             toUser: userId,
-            meta: enrichedMeta,
+            meta: userMeta,
           },
         });
         if (shouldSendEmail && user?.email) {
-          const htmlBody = buildUserNotificationEmailHtml(type, title, message, enrichedMeta);
-          await sendEmail(user.email, title, message, htmlBody);
+          const htmlBody = buildUserNotificationEmailHtml(type, title, message, userMeta);
+          void sendEmail(user.email, title, message, htmlBody).catch((err) => {
+            strapi.log.error('[notification] Background email send failed:', err?.message || err);
+          });
         }
         if (doSocket && strapi.$io) {
-          triggerSocket([String(userId)], { ...payload, id: notification?.id });
+          triggerSocket([String(userId)], { ...userPayload, id: notification?.id });
         }
       } catch (err) {
         strapi.log.error('[notification] sendNotification user error:', err?.message || err);
@@ -437,11 +449,6 @@ module.exports = (strapi) => {
               meta: enrichedMeta,
             },
           });
-          if (shouldSendEmail && admin?.email) {
-            const emailBody = buildAdminEmailBody(title, message, enrichedMeta);
-            const htmlBody = buildAdminNotificationEmailHtml(title, message, enrichedMeta);
-            await sendEmail(admin.email, title, emailBody, htmlBody);
-          }
           if (doSocket && strapi.$io) {
             triggerAdminSocket([String(adminId)], { ...payload, id: notification?.id });
           }
@@ -454,7 +461,6 @@ module.exports = (strapi) => {
 
   return {
     sendNotification,
-    sendEmail,
     isEmailEnabled,
     enrichMeta,
     triggerSocket,

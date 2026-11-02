@@ -19,6 +19,19 @@ function isEmailEnabled() {
   return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
 }
 
+const LEARNER_EMAIL_NOTIFICATION_TYPES = new Set([
+  'course_assigned',
+  'course_completed',
+  'due_date_reminder',
+  'course_due_date_expired',
+  'course_inactive_halfway',
+  'due_date_changed',
+]);
+
+function isLearnerEmailNotificationAllowed(type) {
+  return LEARNER_EMAIL_NOTIFICATION_TYPES.has(type);
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -34,12 +47,13 @@ function buildGreeting(userName) {
   return `<p style="font-size:15px;color:${BODY_TEXT};margin:0 0 14px;">Hello${safeName ? `, <strong>${safeName}</strong>` : ''},</p>`;
 }
 
-function buildCourseChip(courseTitle, accentColor, bgColor) {
+function buildCourseChip(courseTitle, courseVersion, accentColor, bgColor) {
   if (!courseTitle) return '';
   const { BODY_TEXT, GRAY_TEXT, DARK } = EMAIL_THEME;
   return `<div style="background:${bgColor};border-left:4px solid ${accentColor};border-radius:8px;padding:14px 18px;margin:20px 0;">
     <p style="margin:0;font-size:14px;color:${BODY_TEXT};"><span style="color:${GRAY_TEXT};font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">Course</span></p>
     <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:${DARK};">${escapeHtml(courseTitle)}</p>
+    ${courseVersion ? `<p style="margin:8px 0 0;font-size:13px;color:${GRAY_TEXT};"><strong>Version:</strong> ${escapeHtml(courseVersion)}</p>` : ''}
   </div>`;
 }
 
@@ -121,9 +135,10 @@ function buildNotificationBodyContent(type, message, meta = {}) {
   } = EMAIL_THEME;
 
   const courseTitle = meta.courseTitle || (meta.courseId ? `Course #${meta.courseId}` : null);
+  const courseVersion = meta.courseVersion || meta.course_version || null;
   const userName = meta.userName || null;
   const greeting = buildGreeting(userName);
-  const courseChip = (accentColor, bgColor) => buildCourseChip(courseTitle, accentColor, bgColor);
+  const courseChip = (accentColor, bgColor) => buildCourseChip(courseTitle, courseVersion, accentColor, bgColor);
 
   if (type === 'course_assigned') {
     return `
@@ -131,8 +146,79 @@ function buildNotificationBodyContent(type, message, meta = {}) {
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
         A new course has been assigned to you on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong>.
       </p>
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the portal and begin your learning journey. Complete the course before the due date to stay on track with your development goals.</p>
+      ${courseChip(PRIMARY, PRIMARY_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the portal and begin your learning journey. Complete the course before the due date to stay on track with your training goals.</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">If you have any questions, please reach out to your Learning &amp; Development team.</p>
+    `;
+  }
+
+  if (type === 'course_completed') {
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        Congratulations! You have successfully completed your course on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong>.
+      </p>
+      ${courseChip(SUCCESS, SUCCESS_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Thank you for completing your learning journey. Log in to the portal to view your course progress and certificate.</p>
+      <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">Keep up the great work!</p>
+    `;
+  }
+
+  if (type === 'due_date_reminder') {
+    const dueDateLabel = meta.dueDate || null;
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        This is a reminder that your assigned course is due in 2 days.
+      </p>
+      ${courseChip(PRIMARY, PRIMARY_LIGHT)}
+      ${buildInfoBlock('Due date', dueDateLabel, PRIMARY, PRIMARY_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the portal and complete the course by the due date.</p>
+    `;
+  }
+
+  if (type === 'course_due_date_expired') {
+    const dueDateLabel = meta.dueDate || null;
+    const progressLabel = meta.progressPercentage != null
+      ? `${meta.progressPercentage}%`
+      : null;
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        The due date for this course has passed. Your final status is <strong style="color:${ERROR};">Not Completed</strong>.
+      </p>
+      ${courseChip(ERROR, ERROR_LIGHT)}
+      ${buildInfoBlock('Due date', dueDateLabel, ERROR, ERROR_LIGHT)}
+      ${buildInfoBlock('Progress at due date', progressLabel, ERROR, ERROR_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please contact your Learning &amp; Development team if you need assistance.</p>
+    `;
+  }
+
+  if (type === 'course_inactive_halfway') {
+    const halfwayDateLabel = meta.halfwayDate || null;
+    const dueDateLabel = meta.dueDate || null;
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        You have not started this assigned course, and the halfway point of your completion period has passed. Your current status is <strong style="color:${ERROR};">Inactive</strong>.
+      </p>
+      ${courseChip(ERROR, ERROR_LIGHT)}
+      ${buildInfoBlock('Halfway point', halfwayDateLabel, ERROR, ERROR_LIGHT)}
+      ${buildInfoBlock('Course due date', dueDateLabel, ERROR, ERROR_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please start the course and complete it by the due date.</p>
+    `;
+  }
+
+  if (type === 'due_date_changed') {
+    const dueDateLabel = meta.dueDate || meta.newDueDate || null;
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        The due date for your assigned course on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong> has been updated.
+      </p>
+      ${courseChip(PRIMARY, PRIMARY_LIGHT)}
+      ${buildInfoBlock('New due date', dueDateLabel, PRIMARY, PRIMARY_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please complete the course by the updated due date.</p>
     `;
   }
 
@@ -194,61 +280,11 @@ function buildNotificationBodyContent(type, message, meta = {}) {
     `;
   }
 
-  if (type === 'due_date_changed') {
-    const dueDateLabel = meta.dueDate || meta.newDueDate || null;
-    return `
-      ${greeting}
-      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        The due date for your assigned course on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong> has been updated.
-      </p>
-      ${courseChip(PRIMARY, PRIMARY_LIGHT)}
-      ${buildInfoBlock('New due date', dueDateLabel, PRIMARY, PRIMARY_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the portal and complete the course before the new due date.</p>
-      <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">If you have any questions, please reach out to your Learning &amp; Development team.</p>
-    `;
-  }
-
   return `${greeting}<p style="font-size:15px;color:${BODY_TEXT};margin:0;">${escapeHtml(message)}</p>`;
 }
 
 function buildUserNotificationEmailHtml(type, title, message, meta = {}) {
   return wrapBrandedEmailHtml(title, buildNotificationBodyContent(type, message, meta));
-}
-
-function buildAdminEmailPlainText(title, message, meta = {}) {
-  const lines = [title, '', message];
-  if (meta.userName != null || meta.userId != null) {
-    lines.push('', `User: ${meta.userName || `ID ${meta.userId}`}`);
-  }
-  if (meta.courseTitle != null || meta.courseId != null) {
-    lines.push(`Course: ${meta.courseTitle || `ID ${meta.courseId}`}`);
-  }
-  if (meta.newsTitle != null || meta.newsId != null) {
-    lines.push(`News: ${meta.newsTitle || meta.newsId}`);
-  }
-  return lines.join('\n');
-}
-
-function buildAdminNotificationEmailHtml(title, message, meta = {}) {
-  const { PRIMARY, PRIMARY_LIGHT, GRAY_TEXT, BODY_TEXT } = EMAIL_THEME;
-  const blocks = [];
-
-  if (message) {
-    blocks.push(`<p style="font-size:15px;color:${BODY_TEXT};margin:0 0 14px;">${escapeHtml(message)}</p>`);
-  }
-  if (meta.userName != null || meta.userId != null) {
-    blocks.push(buildInfoBlock('User', meta.userName || `ID ${meta.userId}`, PRIMARY, PRIMARY_LIGHT));
-  }
-  if (meta.courseTitle != null || meta.courseId != null) {
-    blocks.push(buildInfoBlock('Course', meta.courseTitle || `ID ${meta.courseId}`, PRIMARY, PRIMARY_LIGHT));
-  }
-  if (meta.newsTitle != null || meta.newsId != null) {
-    blocks.push(buildInfoBlock('News', meta.newsTitle || meta.newsId, PRIMARY, PRIMARY_LIGHT));
-  }
-
-  blocks.push(`<p style="font-size:12px;color:${GRAY_TEXT};margin:16px 0 0;">Please review this update in the admin panel.</p>`);
-
-  return wrapBrandedEmailHtml(title, blocks.join(''));
 }
 
 function buildForgotPasswordEmailHtml({ username, resetUrl }) {
@@ -287,10 +323,9 @@ function buildForgotPasswordPlainText({ username, resetUrl }) {
 module.exports = {
   EMAIL_THEME,
   isEmailEnabled,
+  isLearnerEmailNotificationAllowed,
   wrapBrandedEmailHtml,
   buildUserNotificationEmailHtml,
-  buildAdminNotificationEmailHtml,
-  buildAdminEmailPlainText,
   buildForgotPasswordEmailHtml,
   buildForgotPasswordPlainText,
 };

@@ -1,9 +1,10 @@
+//@ts-nocheck
 "use strict";
 
 const {
   isEmailEnabled,
+  isLearnerEmailNotificationAllowed,
   buildUserNotificationEmailHtml,
-  buildAdminNotificationEmailHtml,
 } = require('../../../utils/email-template');
 
 module.exports = ({ strapi }) => ({
@@ -39,25 +40,25 @@ module.exports = ({ strapi }) => ({
     }
 
     // 3. EMAIL NOTIFICATION using Strapi Email Plugin
-    if (email && toUser && emailEnabled) {
+    if (email && toUser && emailEnabled && isLearnerEmailNotificationAllowed(type)) {
       const user = await strapi.query("plugin::users-permissions.user").findOne({
         where: { id: toUser },
       });
 
       if (user?.email) {
         console.log(`[EMAIL] 📤 Sending to user: ${user.email} | subject: ${title}`);
-        try {
-          await strapi.plugins["email"].services.email.send({
+        void Promise.resolve()
+          .then(() => strapi.plugins["email"].services.email.send({
             to: user.email,
             subject: title,
             text: message,
             html: buildUserNotificationEmailHtml(type, title, message, meta),
+          }))
+          .then(() => console.log(`[EMAIL] ✅ Sent to: ${user.email}`))
+          .catch((err) => {
+            console.log(`[EMAIL] ❌ Failed to: ${user.email} — ${err?.message || err}`);
+            strapi.log.error('Email send error:', err);
           });
-          console.log(`[EMAIL] ✅ Sent to: ${user.email}`);
-        } catch (err) {
-          console.log(`[EMAIL] ❌ Failed to: ${user.email} — ${err?.message || err}`);
-          strapi.log.error('Email send error:', err);
-        }
       }
     }
 
@@ -74,7 +75,6 @@ module.exports = ({ strapi }) => ({
    * @param {Array} adminRoles - Array of admin roles to notify (optional)
    */
   async sendEventNotification(type, title, message, usersArray, meta = {}, adminRoles = []) {
-    const emailEnabled = this.isEmailEnabled();
     // Notify each user
     for (const user of usersArray) {
       await strapi.entityService.create('api::notification.notification', {
@@ -87,22 +87,6 @@ module.exports = ({ strapi }) => ({
           meta,
         },
       });
-      // Email
-      if (user.email && emailEnabled) {
-        console.log(`[EMAIL] 📤 Sending to user: ${user.email} | subject: ${title}`);
-        try {
-          await strapi.plugins["email"].services.email.send({
-            to: user.email,
-            subject: title,
-            text: message,
-            html: buildUserNotificationEmailHtml(type, title, message, meta),
-          });
-          console.log(`[EMAIL] ✅ Sent to: ${user.email}`);
-        } catch (err) {
-          console.log(`[EMAIL] ❌ Failed to: ${user.email} — ${err?.message || err}`);
-          strapi.log.error('Email send error:', err);
-        }
-      }
       // Socket
       if (strapi.$io) {
         strapi.$io.server.to(`user_${user.id}`).emit('new-notification', { type, title, message, meta });
@@ -126,21 +110,6 @@ module.exports = ({ strapi }) => ({
             meta,
           },
         });
-        if (admin.email && emailEnabled) {
-          console.log(`[EMAIL] 📤 Sending to admin: ${admin.email} | subject: ${title}`);
-          try {
-            await strapi.plugins["email"].services.email.send({
-              to: admin.email,
-              subject: title,
-              text: message,
-              html: buildAdminNotificationEmailHtml(title, message, meta),
-            });
-            console.log(`[EMAIL] ✅ Sent to admin: ${admin.email}`);
-          } catch (err) {
-            console.log(`[EMAIL] ❌ Failed to admin: ${admin.email} — ${err?.message || err}`);
-            strapi.log.error('Admin email send error:', err);
-          }
-        }
         if (strapi.$io) {
           strapi.$io.server.to(`admin_${admin.id}`).emit('new-notification', { type, title, message, meta });
         }

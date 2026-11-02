@@ -339,7 +339,7 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
 
     let users = [];
     if (level === 'individual' && userId) {
-      const u = await strapi.db.query('plugin::users-permissions.user').findOne({ where: { id: userId }, select: ['id', 'email'] });
+      const u = await strapi.db.query('plugin::users-permissions.user').findOne({ where: { id: userId }, select: ['id', 'email', 'username'] });
       if (u) users = [u];
     } else if (level === 'department' && departmentId) {
       users = await util.getUsersByDepartment(departmentId);
@@ -351,18 +351,20 @@ module.exports = createCoreController('api::course-assignment.course-assignment'
 
     // Fetch course title for a meaningful notification message
     let courseTitle = 'A new course';
+    let courseVersion = null;
     if (courseId) {
       try {
         const course = await strapi.db.query('api::course.course').findOne({
           where: { $or: [{ id: courseId }, { documentId: courseId }] },
-          select: ['title'],
+          select: ['title', 'course_version'],
         });
         if (course?.title) courseTitle = course.title;
+        courseVersion = course?.course_version || null;
       } catch { /* keep default */ }
     }
 
     // Admin → User: only incomplete users get notification (bell) + email
-    const meta = { courseId, assignedBy, level };
+    const meta = { courseId, courseTitle, courseVersion, assignedBy, level };
     let eligibleUsers = users;
     if (courseId && users.length > 0) {
       const numericCourseId = Number(courseId);

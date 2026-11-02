@@ -15,7 +15,7 @@
                 "type":"enumeration",
                 "required":true,
                 "enum":["course_assigned",
-                "course_unassigned","due_date_changed","quiz_reattempt_requested","quiz_reattempt_approved","quiz_reattempt_rejected","quiz_submitted","quiz_reviewed","feedback_submitted","news_liked","profile_edit_request","custom"]}
+                "course_unassigned","due_date_changed","course_completed","due_date_reminder","course_due_date_expired","course_inactive_halfway","quiz_reattempt_requested","quiz_reattempt_approved","quiz_reattempt_rejected","quiz_submitted","quiz_reviewed","feedback_submitted","news_liked","profile_edit_request","custom"]}
                 ,"title":{"type":"string","required":true},
                 "message":{"type":"text","required":true},
                 "is_read":{"type":"boolean","default":false},

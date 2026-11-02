@@ -90,6 +90,8 @@ Centralized notification service (db + email + socket.io). Triggered by:
 ## 7. Deployment and Config
 - Node.js 20+ required
 - Email via SMTP environment variables
+- `EMAIL_ENABLED` gates learner emails for course assignment, completion, due-date reminders, halfway inactive status, expired partial-progress status, and due-date changes. Other notification emails are disabled; forgot-password email remains separate.
+- Course due-date reminders and status emails are scheduled daily at 08:00 in `CRON_TZ` (or `TZ`, default UTC).
 - Database client via DATABASE_CLIENT
 - Admin URL via ADMIN_URL
 
