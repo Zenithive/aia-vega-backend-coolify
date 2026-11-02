@@ -5,8 +5,9 @@
  * Course module rules (single source of truth for sequence + completion).
  *
  * A course has an ordered list of modules per language. Each module is either:
- *  - Online:  content (video / pdf / text) and an optional quiz.
+ *  - Online:  content (video / pdf / text, or offline-delivered) and an optional quiz.
  *             completed = content read, and — when it has a quiz — the quiz passed.
+ *             Offline-delivered content with a quiz is content-complete for quiz access.
  *             A quiz attempt whose descriptive answers await admin review (review_status
  *             Pending_review) is neither passed nor failed until the review is saved.
  *  - Offline: practical training/test done in the company, no quiz.
@@ -276,6 +277,7 @@ function deriveModuleStates({ course, progress, language, submissions, offlineRe
     const keys = moduleKeys(m);
     const type = moduleType(m);
     const read = keys.some((k) => contentDone.has(k));
+    const contentCompleted = read || (m?.content_is_offline === true && moduleHasQuiz(m));
     const state = {
       index,
       module_id: m.module_id ?? null,
@@ -284,7 +286,7 @@ function deriveModuleStates({ course, progress, language, submissions, offlineRe
       language: m.language ?? null,
       module_type: type,
       has_quiz: moduleHasQuiz(m),
-      content_completed: read,
+      content_completed: contentCompleted,
       completed: false,
       unlocked: !blocked,
       quiz: null,
@@ -396,7 +398,7 @@ async function setModuleContentDone(strapi, progress, moduleId, done = true) {
 
 /**
  * Normalise course.modules on create/update (Document Service middleware):
- * missing type → Online; Offline modules carry no online content or quiz;
+ * missing type → Online; Offline modules carry no content mode, online content, or quiz;
  * a module quiz always uses its module's language.
  */
 function normalizeCourseModules(data) {
@@ -405,14 +407,16 @@ function normalizeCourseModules(data) {
     if (!m || typeof m !== 'object') return;
     if (!m.module_type) m.module_type = MODULE_TYPES.ONLINE;
     if (m.module_type === MODULE_TYPES.OFFLINE) {
+      m.content_is_offline = false;
       m.module_content_type = null;
       m.video_file = [];
       m.pdf_file = [];
       m.text_content = null;
       m.video_description = null;
       m.quiz = null;
-    } else if (m.quiz && typeof m.quiz === 'object' && m.language) {
-      m.quiz.language = m.language;
+    } else {
+      if (m.content_is_offline == null) m.content_is_offline = false;
+      if (m.quiz && typeof m.quiz === 'object' && m.language) m.quiz.language = m.language;
     }
   });
 }

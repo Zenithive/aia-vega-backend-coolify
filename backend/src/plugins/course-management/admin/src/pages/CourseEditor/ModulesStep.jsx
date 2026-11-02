@@ -3,8 +3,8 @@
  * Modules: one card per logical module, with a tab per course language. Under the hood each
  * tab is one `course.module` component entry (language set automatically).
  *
- * A module is Online (content + optional quiz per language) or Offline (a practical
- * session; completed with proof in Course Management → Offline module proof).
+ * A module is Online (online or offline content + optional quiz per language) or Offline
+ * (a practical session; completed with proof in Course Management → Offline module proof).
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -21,6 +21,7 @@ import {
   TextButton,
   Badge,
   Divider,
+  Checkbox,
 } from '@strapi/design-system';
 import {
   Plus,
@@ -124,67 +125,85 @@ function ModuleEntryForm({ entry, onChange, options, readOnly, siblingQuiz, pass
 function OnlineContent({ entry, set, types, readOnly, onChange, options, siblingQuiz, passMark, onPassMarkChange }) {
   return (
     <>
-      <Box>
-        <Typography variant="pi" fontWeight="bold" textColor="neutral800">
-          Content type *
+      <Checkbox
+        checked={!!entry.content_is_offline}
+        disabled={readOnly}
+        onCheckedChange={(checked) => set({ content_is_offline: !!checked })}
+      >
+        <Typography fontWeight="bold" textColor="neutral800">
+          Content is delivered offline
         </Typography>
-        <Box marginTop={2}>
-          <ChoiceCards
-            compact
-            disabled={readOnly}
-            value={entry.module_content_type}
-            onChange={(v) => set({ module_content_type: v })}
-            items={types.map((t) => ({ value: t, ...(CONTENT_TYPE_META[t] || { label: t }) }))}
-          />
-        </Box>
-      </Box>
+      </Checkbox>
 
-      {entry.module_content_type === 'Video' && (
+      {entry.content_is_offline ? (
+        <Callout variant="primary" title="Offline content with online quiz">
+          Learners complete the content offline, then take the quiz online.
+        </Callout>
+      ) : (
         <>
-          <FormField name={`video-${entry.__key}`} label="Video files" required>
-            <MediaPicker
-              multiple
-              allowedTypes={['videos']}
-              value={entry.video_file || []}
+          <Box>
+            <Typography variant="pi" fontWeight="bold" textColor="neutral800">
+              Content type *
+            </Typography>
+            <Box marginTop={2}>
+              <ChoiceCards
+                compact
+                disabled={readOnly}
+                value={entry.module_content_type}
+                onChange={(v) => set({ module_content_type: v })}
+                items={types.map((t) => ({ value: t, ...(CONTENT_TYPE_META[t] || { label: t }) }))}
+              />
+            </Box>
+          </Box>
+
+          {entry.module_content_type === 'Video' && (
+            <>
+              <FormField name={`video-${entry.__key}`} label="Video files" required>
+                <MediaPicker
+                  multiple
+                  allowedTypes={['videos']}
+                  value={entry.video_file || []}
+                  disabled={readOnly}
+                  emptyLabel="No video selected yet"
+                  addLabel="Add video"
+                  onChange={(files) => set({ video_file: files })}
+                />
+              </FormField>
+              <RichTextEditor
+                key={`vd-${entry.__key}`}
+                label="Video description (optional)"
+                value={entry.video_description}
+                disabled={readOnly}
+                onChange={(html) => set({ video_description: html })}
+              />
+            </>
+          )}
+
+          {entry.module_content_type === 'Pdf' && (
+            <FormField name={`pdf-${entry.__key}`} label="PDF files" required>
+              <MediaPicker
+                multiple
+                allowedTypes={['files']}
+                value={entry.pdf_file || []}
+                disabled={readOnly}
+                emptyLabel="No PDF selected yet"
+                addLabel="Add PDF"
+                onChange={(files) => set({ pdf_file: files })}
+              />
+            </FormField>
+          )}
+
+          {entry.module_content_type === 'Text' && (
+            <RichTextEditor
+              key={`tc-${entry.__key}`}
+              label="Content"
+              required
+              value={entry.text_content}
               disabled={readOnly}
-              emptyLabel="No video selected yet"
-              addLabel="Add video"
-              onChange={(files) => set({ video_file: files })}
+              onChange={(html) => set({ text_content: html })}
             />
-          </FormField>
-          <RichTextEditor
-            key={`vd-${entry.__key}`}
-            label="Video description (optional)"
-            value={entry.video_description}
-            disabled={readOnly}
-            onChange={(html) => set({ video_description: html })}
-          />
+          )}
         </>
-      )}
-
-      {entry.module_content_type === 'Pdf' && (
-        <FormField name={`pdf-${entry.__key}`} label="PDF files" required>
-          <MediaPicker
-            multiple
-            allowedTypes={['files']}
-            value={entry.pdf_file || []}
-            disabled={readOnly}
-            emptyLabel="No PDF selected yet"
-            addLabel="Add PDF"
-            onChange={(files) => set({ pdf_file: files })}
-          />
-        </FormField>
-      )}
-
-      {entry.module_content_type === 'Text' && (
-        <RichTextEditor
-          key={`tc-${entry.__key}`}
-          label="Content"
-          required
-          value={entry.text_content}
-          disabled={readOnly}
-          onChange={(html) => set({ text_content: html })}
-        />
       )}
 
       <ModuleQuiz
@@ -224,6 +243,7 @@ function entryComplete(entry) {
   if (!entry) return false;
   if (isBlank(entry.title) || !entry.module_duration_min) return false;
   if (isOfflineModule(entry)) return true;
+  if (entry.content_is_offline) return (entry.quiz?.quiz_questions || []).length > 0;
   if (entry.module_content_type === 'Video') return (entry.video_file || []).length > 0;
   if (entry.module_content_type === 'Pdf') return (entry.pdf_file || []).length > 0;
   if (entry.module_content_type === 'Text') return !isBlank(entry.text_content);
@@ -243,7 +263,11 @@ function ModuleCard({ block, index, total, languages, expanded, onToggle, onChan
   const setModuleType = (type) => {
     const byLang = {};
     Object.entries(block.byLang).forEach(([l, entry]) => {
-      byLang[l] = { ...entry, module_type: type };
+      byLang[l] = {
+        ...entry,
+        module_type: type,
+        ...(type === MODULE_TYPES.OFFLINE ? { content_is_offline: false } : {}),
+      };
     });
     onChange({ ...block, byLang });
   };
@@ -256,6 +280,7 @@ function ModuleCard({ block, index, total, languages, expanded, onToggle, onChan
         byLang[l] = {
           ...byLang[l],
           module_content_type: source.module_content_type,
+          content_is_offline: source.content_is_offline,
           module_duration_min: source.module_duration_min,
         };
       }
@@ -313,6 +338,8 @@ function ModuleCard({ block, index, total, languages, expanded, onToggle, onChan
               })}
               {offline ? (
                 <Badge size="S">Offline</Badge>
+              ) : firstExisting?.content_is_offline ? (
+                <Badge size="S">Offline content</Badge>
               ) : (
                 firstExisting?.module_content_type && <Badge size="S">{firstExisting.module_content_type}</Badge>
               )}

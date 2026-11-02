@@ -28,6 +28,21 @@
         "Offline"
       ]
     },
+    "content_is_offline": {
+      "type": "boolean",
+      "required": true,
+      "default": false,
+      "conditions": {
+        "visible": {
+          "==": [
+            {
+              "var": "module_type"
+            },
+            "Online"
+          ]
+        }
+      }
+    },
     "title": {
       "type": "string",
       "maxLength": 100,
@@ -43,11 +58,22 @@
       ],
       "conditions": {
         "visible": {
-          "==": [
+          "and": [
             {
-              "var": "module_type"
+              "==": [
+                {
+                  "var": "module_type"
+                },
+                "Online"
+              ]
             },
-            "Online"
+            {
+              "!": [
+                {
+                  "var": "content_is_offline"
+                }
+              ]
+            }
           ]
         }
       }
@@ -56,11 +82,22 @@
       "type": "media",
       "conditions": {
         "visible": {
-          "==": [
+          "and": [
             {
-              "var": "module_content_type"
+              "==": [
+                {
+                  "var": "module_content_type"
+                },
+                "Video"
+              ]
             },
-            "Video"
+            {
+              "!": [
+                {
+                  "var": "content_is_offline"
+                }
+              ]
+            }
           ]
         }
       },
@@ -74,11 +111,22 @@
       "type": "media",
       "conditions": {
         "visible": {
-          "==": [
+          "and": [
             {
-              "var": "module_content_type"
+              "==": [
+                {
+                  "var": "module_content_type"
+                },
+                "Pdf"
+              ]
             },
-            "Pdf"
+            {
+              "!": [
+                {
+                  "var": "content_is_offline"
+                }
+              ]
+            }
           ]
         }
       },
@@ -105,11 +153,22 @@
       "type": "customField",
       "conditions": {
         "visible": {
-          "==": [
+          "and": [
             {
-              "var": "module_content_type"
+              "==": [
+                {
+                  "var": "module_content_type"
+                },
+                "Text"
+              ]
             },
-            "Text"
+            {
+              "!": [
+                {
+                  "var": "content_is_offline"
+                }
+              ]
+            }
           ]
         }
       },
@@ -123,11 +182,22 @@
       "type": "customField",
       "conditions": {
         "visible": {
-          "==": [
+          "and": [
             {
-              "var": "module_content_type"
+              "==": [
+                {
+                  "var": "module_content_type"
+                },
+                "Video"
+              ]
             },
-            "Video"
+            {
+              "!": [
+                {
+                  "var": "content_is_offline"
+                }
+              ]
+            }
           ]
         }
       },

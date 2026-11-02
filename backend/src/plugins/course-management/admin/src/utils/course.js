@@ -81,6 +81,7 @@ export function emptyModule(language, template = {}) {
     module_id: '',
     language,
     module_type: template.module_type || MODULE_TYPES.ONLINE,
+    content_is_offline: template.content_is_offline ?? false,
     title: '',
     module_content_type: template.module_content_type || 'Video',
     video_file: [],
@@ -180,6 +181,7 @@ export function groupModules(modules) {
       ...m,
       [UI_KEY]: m[UI_KEY] || newKey('mod'),
       module_type: m.module_type || MODULE_TYPES.ONLINE,
+      content_is_offline: m.content_is_offline ?? false,
       quiz: m.quiz ? prepareQuiz(m.quiz) : null,
     };
     const lang = entry.language || '';
@@ -368,10 +370,14 @@ export function validateCourse(form, limits = {}) {
       }
       // Offline modules have no content or quiz: they are completed with proof in Course Management → Offline module proof.
       if (isOfflineModule(m)) return;
-      if (isBlank(m.module_content_type)) add('modules', `${where}: choose a content type`, 'error', block.key);
-      if (m.module_content_type === 'Video' && !(m.video_file || []).length) add('modules', `${where}: upload or select a video`, 'error', block.key);
-      if (m.module_content_type === 'Pdf' && !(m.pdf_file || []).length) add('modules', `${where}: upload or select a PDF`, 'error', block.key);
-      if (m.module_content_type === 'Text' && isBlankHtml(m.text_content)) add('modules', `${where}: text content is required`, 'error', block.key);
+      if (m.content_is_offline) {
+        if (!(m.quiz?.quiz_questions || []).length) add('modules', `${where}: offline content requires an online quiz`, 'error', block.key);
+      } else {
+        if (isBlank(m.module_content_type)) add('modules', `${where}: choose a content type`, 'error', block.key);
+        if (m.module_content_type === 'Video' && !(m.video_file || []).length) add('modules', `${where}: upload or select a video`, 'error', block.key);
+        if (m.module_content_type === 'Pdf' && !(m.pdf_file || []).length) add('modules', `${where}: upload or select a PDF`, 'error', block.key);
+        if (m.module_content_type === 'Text' && isBlankHtml(m.text_content)) add('modules', `${where}: text content is required`, 'error', block.key);
+      }
       if (m.quiz) validateQuiz(m.quiz, `${where} quiz`, (message, severity) => add('modules', message, severity, block.key));
     });
     const types = new Set(languages.map((l) => block.byLang[l]?.module_type).filter(Boolean));
