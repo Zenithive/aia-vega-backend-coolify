@@ -23,6 +23,7 @@ const {
   sendCourseDueDateReminders,
   sendCourseDueDateExpiredNotifications,
   sendCourseNotStartedHalfwayNotifications,
+  sendCourseFeedbackReminders,
 } = require('./cron-tasks/course-due-date-reminders');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -701,6 +702,12 @@ module.exports = {
             await sendCourseDueDateReminders(s, new Date(), CRON_TZ);
             await sendCourseDueDateExpiredNotifications(s, new Date(), CRON_TZ);
             await sendCourseNotStartedHalfwayNotifications(s, new Date(), CRON_TZ);
+          },
+          options: { rule: '0 0 8 * * *', tz: CRON_TZ },
+        },
+        courseFeedbackReminderDaily: {
+          task: async ({ strapi: s }) => {
+            await sendCourseFeedbackReminders(s, new Date());
           },
           options: { rule: '0 0 8 * * *', tz: CRON_TZ },
         },

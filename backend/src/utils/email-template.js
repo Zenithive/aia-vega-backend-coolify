@@ -22,6 +22,7 @@ function isEmailEnabled() {
 const LEARNER_EMAIL_NOTIFICATION_TYPES = new Set([
   'course_assigned',
   'course_completed',
+  'course_feedback_reminder',
   'due_date_reminder',
   'course_due_date_expired',
   'course_inactive_halfway',
@@ -163,6 +164,17 @@ function buildNotificationBodyContent(type, message, meta = {}) {
       ${courseChip(SUCCESS, SUCCESS_LIGHT)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Thank you for completing your learning journey. Log in to the portal to view your course progress and certificate.</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">Keep up the great work!</p>
+    `;
+  }
+
+  if (type === 'course_feedback_reminder') {
+    return `
+      ${greeting}
+      <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
+        You completed this course at least 2 days ago, but its required feedback has not been submitted yet.
+      </p>
+      ${courseChip(PRIMARY, PRIMARY_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the AIA-VEGA Learning Portal and submit the course feedback. Your feedback helps us improve future learning experiences.</p>
     `;
   }
 

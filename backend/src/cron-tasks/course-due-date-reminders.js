@@ -2,6 +2,8 @@
 'use strict';
 
 const USER_PROGRESS_UID = 'api::user-progress.user-progress';
+const FEEDBACK_SUBMISSION_UID = 'api::feedback-submission.feedback-submission';
+const { isFeedbackCompulsory } = require('../utils/course-modules');
 
 function getDateInTimeZone(date, timeZone) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -259,9 +261,94 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
   return sentCount;
 }
 
+async function sendCourseFeedbackReminders(strapi, now = new Date()) {
+  const notifUtil = strapi.utils?.notification;
+  if (!notifUtil) {
+    throw new Error('Notification utility is unavailable for course feedback reminders');
+  }
+  if (typeof notifUtil.isEmailEnabled === 'function' && !notifUtil.isEmailEnabled()) {
+    strapi.log.info('course feedback reminders: skipped because EMAIL_ENABLED is false');
+    return 0;
+  }
+
+  const completedBefore = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
+    where: {
+      progress_status: 'Completed',
+      completed_at: { $lte: completedBefore },
+      publishedAt: { $notNull: true },
+    },
+    select: ['id', 'documentId', 'completed_at'],
+    populate: {
+      user: { select: ['id', 'email', 'username'] },
+      course: {
+        select: ['id', 'title', 'course_version'],
+        populate: { feedback: true },
+      },
+    },
+  });
+
+  const store = strapi.store({ type: 'core', name: 'course-feedback-reminders' });
+  const processedLearners = new Set();
+  let sentCount = 0;
+
+  for (const row of rows || []) {
+    const user = row.user;
+    const course = row.course;
+    if (!row.id || !row.completed_at || !user?.id || !user.email || !course?.id) continue;
+
+    const completedAtDate = new Date(row.completed_at);
+    if (Number.isNaN(completedAtDate.getTime()) || completedAtDate > completedBefore) continue;
+
+    const learnerCourseKey = `${user.id}:${course.id}`;
+    if (processedLearners.has(learnerCourseKey)) continue;
+    processedLearners.add(learnerCourseKey);
+
+    if (!isFeedbackCompulsory(course)) continue;
+
+    const feedbackSubmission = await strapi.db.query(FEEDBACK_SUBMISSION_UID).findOne({
+      where: {
+        course: Number(course.id),
+        users_permissions_user: Number(user.id),
+        publishedAt: { $notNull: true },
+      },
+      select: ['id'],
+    });
+    if (feedbackSubmission) continue;
+
+    const completedAt = completedAtDate.toISOString();
+    const storeKey = `sent_${row.documentId || row.id}_${Date.parse(completedAt)}`;
+    if (await store.get({ key: storeKey })) continue;
+
+    const courseTitle = course.title || `Course #${course.id}`;
+    await notifUtil.sendNotification(
+      'course_feedback_reminder',
+      'Course Feedback Reminder',
+      `You completed "${courseTitle}" at least 2 days ago. Please submit the required course feedback.`,
+      [{ id: user.id, email: user.email, username: user.username }],
+      {
+        courseId: course.id,
+        courseTitle,
+        courseVersion: course.course_version || null,
+        userId: user.id,
+        userName: user.username || user.email,
+      },
+      [],
+      { sendEmail: true, sendSocket: true }
+    );
+
+    await store.set({ key: storeKey, value: true });
+    sentCount += 1;
+  }
+
+  strapi.log.info('course feedback reminders: processed %d learner(s)', sentCount);
+  return sentCount;
+}
+
 module.exports = {
   sendCourseDueDateReminders,
   sendCourseDueDateExpiredNotifications,
   sendCourseNotStartedHalfwayNotifications,
+  sendCourseFeedbackReminders,
   getHalfwayDate,
 };
