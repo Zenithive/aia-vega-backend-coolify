@@ -254,7 +254,7 @@ export function DataTable({
               <Tr
                 key={rowKey ? rowKey(row, i) : i}
                 onClick={onRowClick ? (event) => {
-                  if (event.target.closest?.('button, a, input, select, [role="button"]')) return;
+                  if (event.target.closest?.('button, a, input, select, [role="button"], [role^="menuitem"]')) return;
                   onRowClick(row, event);
                 } : undefined}
                 style={{
