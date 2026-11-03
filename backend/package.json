@@ -26,7 +26,7 @@
     "upgrade:dry": "npx @strapi/upgrade latest --dry"
   },
   "dependencies": {
-    "@_sh/strapi-plugin-ckeditor": "^5.0.1",
+    "@_sh/strapi-plugin-ckeditor": "^8.0.0",
     "@arshiash80/strapi-plugin-iconhub": "^1.1.1",
     "@ckeditor/ckeditor5-react": "^11.0.1",
     "@strapi-community/plugin-io": "^5.3.2",
