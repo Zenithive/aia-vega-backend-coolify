@@ -13,12 +13,6 @@ import {
   Button,
   SingleSelect,
   SingleSelectOption,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
   Badge,
   Loader,
   Modal,
@@ -30,6 +24,7 @@ import {
 } from '@strapi/design-system';
 import { Upload, Trash, File as FileIcon, CheckCircle, WarningCircle } from '@strapi/icons';
 import { PLUGIN_ID } from '../../pluginId';
+import DataTable from '../../../../../analytics-dashboard/admin/src/components/DataTable';
 
 const base = `/${PLUGIN_ID}/offline`;
 
@@ -162,6 +157,8 @@ export default function OfflineAssessments({ canSave }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -231,6 +228,92 @@ export default function OfflineAssessments({ canSave }) {
       .some((v) => String(v).toLowerCase().includes(q));
   });
   const counts = (data?.learners || []).reduce((acc, l) => ({ ...acc, [l.status]: (acc[l.status] || 0) + 1 }), {});
+  const pageCount = Math.max(1, Math.ceil(learners.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = learners.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => setPage(1), [courseId, moduleIndex, search, pageSize]);
+  const columns = [
+    {
+      key: 'user',
+      label: 'Learner',
+      exportValue: (user) => learnerName(user),
+      render: (user) => (
+        <Flex direction="column" alignItems="flex-start">
+          <Typography fontWeight="bold">{learnerName(user)}</Typography>
+          <Typography variant="pi" textColor="neutral600">
+            {[user.emp_code, user.emp_id, user.email].filter(Boolean).join(' · ') || '—'}
+          </Typography>
+        </Flex>
+      ),
+    },
+    { key: 'company', label: 'Company', exportValue: (company) => company || '—', render: (company) => <Typography>{company || '—'}</Typography> },
+    {
+      key: 'progress_status',
+      label: 'Course status',
+      render: (status) => {
+        const meta = COURSE_STATUS[status] || COURSE_STATUS.Not_started;
+        return <Badge variant={meta.variant}>{meta.label}</Badge>;
+      },
+    },
+    {
+      key: 'status',
+      label: 'Module status',
+      render: (status, learner) => {
+        const meta = STATUS[status] || STATUS.locked;
+        return (
+          <Flex direction="column" alignItems="flex-start" gap={1}>
+            <Badge variant={meta.variant}>{meta.label}</Badge>
+            {status === 'locked' && learner.pending_modules_before > 0 && (
+              <Typography variant="pi" textColor="neutral600">
+                {`${learner.pending_modules_before} earlier module${learner.pending_modules_before === 1 ? '' : 's'} to finish`}
+              </Typography>
+            )}
+          </Flex>
+        );
+      },
+    },
+    {
+      key: 'completion',
+      label: 'Proof',
+      exportValue: (completion) => (completion?.proof || []).map((file) => file.name).join(', ') || 'No proof',
+      render: (completion) => {
+        const proof = completion?.proof || [];
+        return proof.length ? (
+          <Flex direction="column" alignItems="flex-start" gap={1}>
+            {proof.map((file) => (
+              <a key={file.id} href={fileUrl(file)} target="_blank" rel="noreferrer">
+                <Typography variant="pi">{file.name}</Typography>
+              </a>
+            ))}
+            <Typography variant="pi" textColor="neutral600">
+              {[completion.assessed_by, completion.completed_at && new Date(completion.completed_at).toLocaleDateString()]
+                .filter(Boolean)
+                .join(' · ')}
+            </Typography>
+          </Flex>
+        ) : <Typography textColor="neutral500">No proof yet</Typography>;
+      },
+    },
+    {
+      key: 'upload',
+      label: 'Upload proof',
+      exportValue: () => '',
+      render: (_, learner) => {
+        const hasProof = (learner.completion?.proof || []).length > 0;
+        return learner.status === 'mismatch' ? (
+          <Typography variant="pi" textColor="neutral600">
+            {`Not needed: in ${learner.selected_language || 'this learner’s'} language this module is online.`}
+          </Typography>
+        ) : hasProof ? (
+          <Badge variant="success">Submitted</Badge>
+        ) : !canSave ? (
+          <Typography variant="pi" textColor="neutral600">View only</Typography>
+        ) : (
+          <Button size="S" startIcon={<Upload />} onClick={() => setEditing(learner)}>Upload proof</Button>
+        );
+      },
+    },
+  ];
 
   return (
     <>
@@ -323,87 +406,18 @@ export default function OfflineAssessments({ canSave }) {
             />
           </Box>
         ) : (
-          <Table colCount={6} rowCount={learners.length + 1}>
-            <Thead>
-              <Tr>
-                <Th><Typography variant="sigma">Learner</Typography></Th>
-                <Th><Typography variant="sigma">Company</Typography></Th>
-                <Th><Typography variant="sigma">Course status</Typography></Th>
-                <Th><Typography variant="sigma">Module status</Typography></Th>
-                <Th><Typography variant="sigma">Proof</Typography></Th>
-                <Th><Typography variant="sigma">Upload proof</Typography></Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {learners.map((l) => {
-                const meta = STATUS[l.status] || STATUS.locked;
-                // An entry is created on assignment without proof; only uploaded files count as proof.
-                const hasProof = (l.completion?.proof || []).length > 0;
-                return (
-                  <Tr key={l.user.id}>
-                    <Td>
-                      <Flex direction="column" alignItems="flex-start">
-                        <Typography fontWeight="bold">{learnerName(l.user)}</Typography>
-                        <Typography variant="pi" textColor="neutral600">
-                          {[l.user.emp_code, l.user.emp_id, l.user.email].filter(Boolean).join(' · ') || '—'}
-                        </Typography>
-                      </Flex>
-                    </Td>
-                    <Td><Typography>{l.user.company || '—'}</Typography></Td>
-                    <Td>
-                      <Badge variant={(COURSE_STATUS[l.progress_status] || COURSE_STATUS.Not_started).variant}>
-                        {(COURSE_STATUS[l.progress_status] || COURSE_STATUS.Not_started).label}
-                      </Badge>
-                    </Td>
-                    <Td>
-                      <Flex direction="column" alignItems="flex-start" gap={1}>
-                        <Badge variant={meta.variant}>{meta.label}</Badge>
-                        {l.status === 'locked' && l.pending_modules_before > 0 && (
-                          <Typography variant="pi" textColor="neutral600">
-                            {`${l.pending_modules_before} earlier module${l.pending_modules_before === 1 ? '' : 's'} to finish`}
-                          </Typography>
-                        )}
-                      </Flex>
-                    </Td>
-                    <Td>
-                      {hasProof ? (
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          {(l.completion.proof || []).map((f) => (
-                            <a key={f.id} href={fileUrl(f)} target="_blank" rel="noreferrer">
-                              <Typography variant="pi">{f.name}</Typography>
-                            </a>
-                          ))}
-                          <Typography variant="pi" textColor="neutral600">
-                            {[l.completion.assessed_by, l.completion.completed_at && new Date(l.completion.completed_at).toLocaleDateString()]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </Typography>
-                        </Flex>
-                      ) : (
-                        <Typography textColor="neutral500">No proof yet</Typography>
-                      )}
-                    </Td>
-                    <Td>
-                      {l.status === 'mismatch' ? (
-                        <Typography variant="pi" textColor="neutral600">
-                          {`Not needed: in ${l.selected_language || 'this learner’s'} language this module is online.`}
-                        </Typography>
-                      ) : hasProof ? (
-                        // Submitted proof is final: it cannot be replaced or removed.
-                        <Badge variant="success">Submitted</Badge>
-                      ) : !canSave ? (
-                        <Typography variant="pi" textColor="neutral600">View only</Typography>
-                      ) : (
-                        <Button size="S" startIcon={<Upload />} onClick={() => setEditing(l)}>
-                          Upload proof
-                        </Button>
-                      )}
-                    </Td>
-                  </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
+          <DataTable
+            data={pageRows}
+            columns={columns}
+            rowKey={(learner) => learner.user.id}
+            pagination={{
+              page: currentPage,
+              pageSize,
+              total: learners.length,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+            }}
+          />
         )}
       </>
 

@@ -53,6 +53,7 @@ module.exports = ({ env }) => ({
 
   /**
    * 📧 Email Provider (Nodemailer)
+   * EMAIL_ENABLED gates notification emails; forgot-password sends directly through SMTP.
    */
   email: {
     enabled: env.bool('EMAIL_ENABLED', false),

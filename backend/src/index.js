@@ -864,7 +864,7 @@ module.exports = {
       strapi.log.error('Feedback-submission notification bootstrap failed:', e?.message || e);
     }
 
-    // Quiz reattempt: user notification (bell + email) when admin approves or rejects
+    // Quiz reattempt: bell notification on approval/rejection; email on approval
     try {
       const { registerQuizReattemptNotificationLifecycles } = require('./lifecycles/quiz-reattempt-notification');
       registerQuizReattemptNotificationLifecycles(strapi);

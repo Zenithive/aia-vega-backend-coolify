@@ -6,7 +6,6 @@ const crypto = require('node:crypto');
 const nodemailer = require('nodemailer');
 const { recordUserLastLogin } = require('../../../utils/record-user-last-login');
 const {
-  isEmailEnabled,
   buildForgotPasswordEmailHtml,
   buildForgotPasswordPlainText,
 } = require('../../../utils/email-template');
@@ -203,13 +202,6 @@ module.exports = {
       return ctx.internalServerError({
         errorCode: 'SMTP_NOT_CONFIGURED',
         message: 'Email service is not configured on the server.',
-        emailSent: false,
-      });
-    }
-    if (/EMAIL_ENABLED is false/i.test(msg)) {
-      return ctx.internalServerError({
-        errorCode: 'EMAIL_DISABLED',
-        message: 'Email service is disabled. Set EMAIL_ENABLED=true in server configuration.',
         emailSent: false,
       });
     }

@@ -15,13 +15,7 @@ import {
   IconButton,
   Loader,
   Searchbar,
-  Table,
   Tag,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
   Typography,
 } from '@strapi/design-system';
 import { Cross, Eye, Pencil, Plus, Trash, User } from '@strapi/icons';
@@ -31,6 +25,7 @@ import { useAssignmentPermissions } from '../../utils/usePermissions';
 import { describeTarget, formatDay, isPastDay } from '../../utils/assignment';
 import SectionNav from '../../components/SectionNav.jsx';
 import { ConfirmDialog } from '../../components/ui.jsx';
+import DataTable from '../../../../../analytics-dashboard/admin/src/components/DataTable';
 
 export default function AssignmentList() {
   const navigate = useNavigate();
@@ -40,6 +35,8 @@ export default function AssignmentList() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const { toggleNotification } = useNotification();
@@ -81,6 +78,53 @@ export default function AssignmentList() {
 
   const filterCourse = courseFilter ? (rows || []).flatMap((a) => a.courses).find((c) => c.documentId === courseFilter) : null;
   const newPath = `${BASE_PATH}/assignments/new${courseFilter ? `?course=${courseFilter}` : ''}`;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => setPage(1), [search, courseFilter, pageSize]);
+  const columns = [
+    {
+      key: 'courses',
+      label: 'Course',
+      exportValue: (courses) => courses.map((c) => `${c.title}${c.course_version ? ` (v${c.course_version})` : ''}`).join(', '),
+      render: (courses) => (
+        <Flex direction="column" alignItems="flex-start" gap={1} style={{ maxWidth: 320 }}>
+          {courses.map((course) => (
+            <Typography key={course.documentId} fontWeight="bold" ellipsis style={{ maxWidth: 320 }}>
+              {`${course.title}${course.course_version ? ` (v${course.course_version})` : ''}`}
+            </Typography>
+          ))}
+          {courses.length === 0 && <Typography textColor="neutral500">No course</Typography>}
+        </Flex>
+      ),
+    },
+    { key: 'company', label: 'Company', exportValue: (company) => company?.name || '—', render: (company) => <Typography>{company?.name || '—'}</Typography> },
+    { key: 'target', label: 'Assigned to', exportValue: (_, assignment) => describeTarget(assignment), render: (_, assignment) => <Typography ellipsis style={{ maxWidth: 280, display: 'block' }}>{describeTarget(assignment)}</Typography> },
+    { key: 'dueDate', label: 'Due date', render: (dueDate) => <Typography textColor={isPastDay(dueDate) ? 'danger600' : 'neutral800'}>{formatDay(dueDate)}</Typography> },
+    { key: 'isLive', label: 'Status', render: (isLive) => isLive ? <Badge variant="success">Assigned</Badge> : <Badge>Not sent yet</Badge> },
+    {
+      key: 'actions',
+      label: 'Actions',
+      exportValue: () => '',
+      render: (_, assignment) => (
+        <Flex gap={2}>
+          <Button
+            size="S"
+            variant="secondary"
+            startIcon={perms.canEdit ? <Pencil /> : <Eye />}
+            onClick={() => navigate(`${BASE_PATH}/assignments/${assignment.documentId}`)}
+          >
+            Open
+          </Button>
+          {perms.canDelete && (
+            <IconButton label="Delete assignment" variant="ghost" onClick={() => setToDelete(assignment)}>
+              <Trash />
+            </IconButton>
+          )}
+        </Flex>
+      ),
+    },
+  ];
 
   if (perms.isLoading) return <Page.Loading />;
   if (!perms.canRead) return <Page.NoPermissions />;
@@ -142,63 +186,18 @@ export default function AssignmentList() {
             />
           </Box>
         ) : (
-          <Table colCount={6} rowCount={filtered.length + 1}>
-            <Thead>
-              <Tr>
-                <Th><Typography variant="sigma">Course</Typography></Th>
-                <Th><Typography variant="sigma">Company</Typography></Th>
-                <Th><Typography variant="sigma">Assigned to</Typography></Th>
-                <Th><Typography variant="sigma">Due date</Typography></Th>
-                <Th><Typography variant="sigma">Status</Typography></Th>
-                <Th><Typography variant="sigma">Actions</Typography></Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {filtered.map((a) => (
-                <Tr key={a.documentId}>
-                  <Td>
-                    <Flex direction="column" alignItems="flex-start" gap={1} style={{ maxWidth: 320 }}>
-                      {a.courses.map((c) => (
-                        <Typography key={c.documentId} fontWeight="bold" ellipsis style={{ maxWidth: 320 }}>
-                          {`${c.title}${c.course_version ? ` (v${c.course_version})` : ''}`}
-                        </Typography>
-                      ))}
-                      {a.courses.length === 0 && <Typography textColor="neutral500">No course</Typography>}
-                    </Flex>
-                  </Td>
-                  <Td><Typography>{a.company?.name || '—'}</Typography></Td>
-                  <Td>
-                    <Typography ellipsis style={{ maxWidth: 280, display: 'block' }}>
-                      {describeTarget(a)}
-                    </Typography>
-                  </Td>
-                  <Td>
-                    <Typography textColor={isPastDay(a.dueDate) ? 'danger600' : 'neutral800'}>{formatDay(a.dueDate)}</Typography>
-                  </Td>
-                  <Td>
-                    {a.isLive ? <Badge variant="success">Assigned</Badge> : <Badge>Not sent yet</Badge>}
-                  </Td>
-                  <Td>
-                    <Flex gap={2}>
-                    <Button
-                      size="S"
-                      variant="secondary"
-                      startIcon={perms.canEdit ? <Pencil /> : <Eye />}
-                      onClick={() => navigate(`${BASE_PATH}/assignments/${a.documentId}`)}
-                    >
-                      Open
-                    </Button>
-                    {perms.canDelete && (
-                      <IconButton label="Delete assignment" variant="ghost" onClick={() => setToDelete(a)}>
-                        <Trash />
-                      </IconButton>
-                    )}
-                    </Flex>
-                  </Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
+          <DataTable
+            data={pageRows}
+            columns={columns}
+            rowKey={(assignment) => assignment.documentId}
+            pagination={{
+              page: currentPage,
+              pageSize,
+              total: filtered.length,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+            }}
+          />
         )}
       </Layouts.Content>
 

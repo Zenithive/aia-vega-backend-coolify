@@ -26,6 +26,8 @@ const LEARNER_EMAIL_NOTIFICATION_TYPES = new Set([
   'course_due_date_expired',
   'course_inactive_halfway',
   'due_date_changed',
+  'quiz_reviewed',
+  'quiz_reattempt_approved',
 ]);
 
 function isLearnerEmailNotificationAllowed(type) {

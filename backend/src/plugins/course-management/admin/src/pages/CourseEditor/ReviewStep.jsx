@@ -3,15 +3,16 @@
  * Review & publish: summary, a readiness checklist grouped by step, and read-only
  * information about assignments and other versions of this course.
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Flex, Typography, Button, Grid, Badge, TextButton, Table, Thead, Tbody, Tr, Th, Td } from '@strapi/design-system';
+import { Box, Flex, Typography, Button, Grid, Badge, TextButton } from '@strapi/design-system';
 import { CheckCircle, WarningCircle, CrossCircle, Earth, Plus, ArrowRight } from '@strapi/icons';
 import { Section, Callout, StatusBadge } from '../../components/ui.jsx';
 import { STEPS, formatDate } from '../../utils/course';
 import { TARGETS } from '../../utils/assignment';
 import { BASE_PATH } from '../../pluginId';
 import { useAssignmentPermissions } from '../../utils/usePermissions';
+import DataTable from '../../../../../analytics-dashboard/admin/src/components/DataTable';
 
 const ASSIGNMENT_PATH = `${BASE_PATH}/assignments`;
 
@@ -71,6 +72,27 @@ export default function ReviewStep({ form, issues, meta, isNew, readOnly, canPub
   // Per-learner entries the automation adds for department / location assignments have no course_version.
   const assignments = (form.course_assignments || []).filter((a) => a.course_version);
   const versions = meta?.versions || [];
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const pageCount = Math.max(1, Math.ceil(versions.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = versions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => setPage(1), [documentId, pageSize]);
+  const versionColumns = [
+    {
+      key: 'course_version',
+      label: 'Version',
+      render: (version, row) => (
+        <Flex gap={2}>
+          <Typography fontWeight="bold">{version || '—'}</Typography>
+          {row.documentId === documentId && <Badge variant="primary">This version</Badge>}
+        </Flex>
+      ),
+    },
+    { key: 'title', label: 'Title' },
+    { key: 'status', label: 'Status', render: (status) => <StatusBadge status={status} /> },
+    { key: 'createdAt', label: 'Created', render: (createdAt) => <Typography variant="pi">{formatDate(createdAt)}</Typography> },
+  ];
   const quizModules = (form.moduleBlocks || []).filter((b) => Object.values(b.byLang).some((m) => m?.quiz && m.module_type !== 'Offline')).length;
   const status = meta?.status || 'draft';
 
@@ -167,38 +189,18 @@ export default function ReviewStep({ form, issues, meta, isNew, readOnly, canPub
 
       {!isNew && versions.length > 1 && (
         <Section title={`Versions (${versions.length})`}>
-          <Table colCount={4} rowCount={versions.length + 1}>
-            <Thead>
-              <Tr>
-                <Th><Typography variant="sigma">Version</Typography></Th>
-                <Th><Typography variant="sigma">Title</Typography></Th>
-                <Th><Typography variant="sigma">Status</Typography></Th>
-                <Th><Typography variant="sigma">Created</Typography></Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {versions.map((v) => {
-                const current = v.documentId === documentId;
-                return (
-                  <Tr
-                    key={v.documentId}
-                    onClick={() => !current && navigate(`${BASE_PATH}/${v.documentId}`)}
-                    style={{ cursor: current ? 'default' : 'pointer' }}
-                  >
-                    <Td>
-                      <Flex gap={2}>
-                        <Typography fontWeight="bold">{v.course_version || '—'}</Typography>
-                        {current && <Badge variant="primary">This version</Badge>}
-                      </Flex>
-                    </Td>
-                    <Td><Typography>{v.title}</Typography></Td>
-                    <Td><StatusBadge status={v.status} /></Td>
-                    <Td><Typography variant="pi">{formatDate(v.createdAt)}</Typography></Td>
-                  </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
+          <DataTable
+            data={pageRows}
+            columns={versionColumns}
+            rowKey={(version) => version.documentId}
+            pagination={{
+              page: currentPage,
+              pageSize,
+              total: versions.length,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+            }}
+          />
         </Section>
       )}
     </>

@@ -69,7 +69,8 @@ async function resolveAssignmentNotificationPayload(strapi, result, params = {})
 
 /**
  * The learner's own due date lives on their user-progress row (user + course).
- * A learner with no row, or a row without due_date, has not been assigned yet → gets the assignment due date.
+ * A learner with no row has not been assigned yet. A blank date on an existing row is treated as
+ * a new assignment unless the admin explicitly chose to update existing learners.
  * A learner who already has a due_date keeps it, unless the admin ticked "update existing learners".
  * Returns who was newly assigned and whose due date actually changed, so notifications go only to them.
  */
@@ -80,7 +81,11 @@ async function syncLearnerDueDates(strapi, courseId, userIds, dueDate, { applyTo
   if (!courseId || ids.length === 0) return outcome;
 
   const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
-    where: { course: Number(courseId), user: { $in: ids }, publishedAt: { $notNull: true } },
+    where: {
+      course: { id: Number(courseId) },
+      user: { id: { $in: ids } },
+      publishedAt: { $notNull: true },
+    },
     select: ['id', 'documentId', 'due_date'],
     populate: { user: { select: ['id'] } },
   });
@@ -102,7 +107,10 @@ async function syncLearnerDueDates(strapi, courseId, userIds, dueDate, { applyTo
   const toSet = [];
   for (const [uid, userRows] of rowsByUserId) {
     const current = formatDueDateValue(userRows.find((r) => r.due_date)?.due_date);
-    if (!current) {
+    if (!current && applyToExisting && dueValue) {
+      toSet.push(...userRows);
+      outcome.dueDateChangedUserIds.push(uid);
+    } else if (!current) {
       toSet.push(...userRows);
       outcome.newlyAssignedUserIds.push(uid);
     } else if (applyToExisting && dueValue && current !== dueValue) {
@@ -190,7 +198,7 @@ async function processPublishedAssignment(strapi, result, params = {}, { payload
       await sendDueDateChangedNotifications(strapi, result, {
         courseId: rawCourseId,
         courseIds: [rawCourseId],
-        userIds,
+        userIds: dueDateChangedUserIds,
         due_date: dueDate,
         targetType,
       });

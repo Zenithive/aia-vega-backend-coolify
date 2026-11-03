@@ -1,9 +1,8 @@
 'use strict';
 
 /**
- * When a quiz reattempt request is updated to Approved or Rejected,
- * send notification to the user (bell + email). Single place for both
- * plugin UI and Content Manager / API updates.
+ * When a quiz reattempt request changes to Approved or Rejected, notify the user.
+ * Approval also sends an email; both are handled for Content Manager / API updates.
  */
 
 const QUIZ_REATTEMPT_UID = 'api::quiz-reattempt-request.quiz-reattempt-request';
@@ -23,6 +22,19 @@ const {
 function registerQuizReattemptNotificationLifecycles(strapi) {
   strapi.db.lifecycles.subscribe({
     models: [QUIZ_REATTEMPT_UID],
+
+    async beforeUpdate(event) {
+      const where = event?.params?.where;
+      if (!where) return;
+      const existing = await strapi.db.query(QUIZ_REATTEMPT_UID).findOne({
+        where,
+        select: ['request_status'],
+      });
+      event.state = {
+        ...(event.state || {}),
+        previousRequestStatus: existing?.request_status ?? null,
+      };
+    },
 
     async afterCreate(event) {
       try {
@@ -45,6 +57,7 @@ function registerQuizReattemptNotificationLifecycles(strapi) {
         const { result } = event;
         const status = result?.request_status;
         if (status !== 'Approved' && status !== 'Rejected') return;
+        if (event?.state?.previousRequestStatus === status) return;
 
         const rawEmailEnabled = String(process.env.EMAIL_ENABLED || 'false').trim().toLowerCase();
         const emailEnabled = rawEmailEnabled === 'true' || rawEmailEnabled === '1' || rawEmailEnabled === 'yes' || rawEmailEnabled === 'on';

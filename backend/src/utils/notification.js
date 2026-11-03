@@ -362,7 +362,7 @@ module.exports = (strapi) => {
    * - User notifications (toUser): stored for portal bell + eligible learner email + socket.
    * - Admin notifications (admin_user, forRole): stored for Strapi admin bell + socket.
    * Targeting: admin gets all; HR gets news_liked; LM gets course-related (feedback, quiz submit, quiz reattempt).
-   * Email is restricted to learner course-assignment, completion and due-date reminder events.
+   * Email is restricted to supported learner course, quiz-review and reattempt-approval events.
    * @param {string} type - Notification type (enum)
    * @param {string} title - Notification title
    * @param {string} message - Notification message
@@ -370,8 +370,8 @@ module.exports = (strapi) => {
    * @param {Object} meta - Additional metadata
    * @param {Array} adminRoles - Admin role codes: ['admin','LMadmin','HRadmin']
    * @param {Object} options - { sendEmail: true, sendSocket: true }
-   *   Learner email is limited to course assignment, completion and due-date reminders, and
-   *   requires options.sendEmail plus process.env.EMAIL_ENABLED.
+   *   Learner email is limited to supported notification types and requires options.sendEmail
+   *   plus process.env.EMAIL_ENABLED.
    *   In-app (DB) and socket delivery are independent of EMAIL_ENABLED.
    */
   async function sendNotification(type, title, message, usersArray = [], meta = {}, adminRoles = [], options = {}) {

@@ -16,12 +16,6 @@ import {
   Modal,
   SingleSelect,
   SingleSelectOption,
-  Table,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
   Searchbar,
   Typography,
 } from '@strapi/design-system';

@@ -16,12 +16,6 @@ import {
   Searchbar,
   SingleSelect,
   SingleSelectOption,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
   Badge,
   Menu,
   Loader,
@@ -37,8 +31,8 @@ import { thumbnailUrl, formatDate } from '../utils/course';
 import { ConfirmDialog } from '../components/ui.jsx';
 import DuplicateModal from '../components/DuplicateModal.jsx';
 import SectionNav from '../components/SectionNav.jsx';
+import DataTable from '../../../../analytics-dashboard/admin/src/components/DataTable';
 
-const PAGE_SIZE = 10;
 const STATUS_FILTERS = [
   { value: 'draft', label: 'Draft' },
   { value: 'published', label: 'Published' },
@@ -98,6 +92,7 @@ export default function CourseList() {
       groupId: searchParams.get('groupId') || '',
       groupLabelId: searchParams.get('groupLabelId') || '',
       page: Number(searchParams.get('page') || 1),
+      pageSize: Number(searchParams.get('pageSize') || 10),
     }),
     [searchParams]
   );
@@ -119,7 +114,7 @@ export default function CourseList() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.list({ ...filters, pageSize: PAGE_SIZE });
+      const res = await api.list(filters);
       setRows(res.data || []);
       setMeta(res.meta || null);
     } catch (e) {
@@ -184,6 +179,98 @@ export default function CourseList() {
     : null;
   const pagination = meta?.pagination;
   const hasFilters = ['search', 'status', 'category', 'language', 'active', 'groupId', 'groupLabelId'].some((k) => filters[k]);
+  const columns = [
+    {
+      key: 'title',
+      label: 'Course',
+      exportValue: (_, course) => course.title,
+      render: (_, course) => {
+        const isPublished = course.status !== 'draft';
+        return (
+          <Flex gap={3} alignItems="center">
+            <Thumbnail file={course.thumbnail} status={course.status} />
+            <Flex direction="column" alignItems="flex-start" gap={1} style={{ maxWidth: 320 }}>
+              <Typography variant="omega" fontWeight="semiBold" textColor="neutral800" style={{ fontSize: '14px' }}>
+                {course.title || 'Untitled course'}
+              </Typography>
+              <Typography variant="pi" textColor="neutral600" ellipsis style={{ maxWidth: 320 }}>
+                {course.companies.length ? course.companies.join(', ') : 'All companies'}
+                {course.assignmentCount > 0 && ` · ${course.assignmentCount} assignment${course.assignmentCount === 1 ? '' : 's'}`}
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    padding: '1px 6px',
+                    borderRadius: '4px',
+                    marginLeft: '6px',
+                    backgroundColor: isPublished ? '#ebf5ef' : '#e6e6f9',
+                    color: isPublished ? '#2d8a4e' : '#5a57f1',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {course.status}
+                </span>
+              </Typography>
+            </Flex>
+          </Flex>
+        );
+      },
+    },
+    {
+      key: 'course_version',
+      label: 'Version',
+      render: (version, course) => (
+        <Flex direction="column" alignItems="flex-start" gap={1}>
+          <Typography>{version || '—'}</Typography>
+          {course.versionCount > 1 && !filters.groupId && (
+            <TextButton onClick={(event) => {
+              event.stopPropagation();
+              setFilter('groupId', course.group_id);
+            }}>
+              {`${course.versionCount} versions`}
+            </TextButton>
+          )}
+          {course.active && course.active !== 'published' && (
+            <Typography variant="pi" textColor="danger600">Hidden from learners</Typography>
+          )}
+        </Flex>
+      ),
+    },
+    { key: 'course_category', label: 'Category', render: (category) => <Typography>{category || '—'}</Typography> },
+    { key: 'course_group_label', label: 'Group Label', exportValue: (_, course) => course.course_group_label?.name || '—', render: (_, course) => <Typography>{course.course_group_label?.name || '—'}</Typography> },
+    {
+      key: 'languages',
+      label: 'Languages',
+      exportValue: (languages) => (languages || []).join(', '),
+      render: (languages) => (
+        <Flex gap={1} wrap="wrap" style={{ maxWidth: 150 }}>
+          {languages.length ? languages.map((language) => <Badge key={language}>{language}</Badge>) : <Typography textColor="neutral500">—</Typography>}
+        </Flex>
+      ),
+    },
+    { key: 'updatedAt', label: 'Updated', render: (updatedAt) => <Typography variant="pi" textColor="neutral700">{formatDate(updatedAt)}</Typography> },
+    {
+      key: 'actions',
+      label: 'Actions',
+      exportValue: () => '',
+      render: (_, course) => (
+        <RowActions
+          course={course}
+          isPublished={course.status !== 'draft'}
+          perms={perms}
+          canAssign={assignmentPerms.canAssign}
+          onEdit={() => navigate(`${BASE_PATH}/${course.documentId}`)}
+          onDuplicate={() => {
+            setDuplicateError(null);
+            setToDuplicate(course);
+          }}
+          onAssign={() => navigate(`${BASE_PATH}/assignments/new?course=${course.documentId}`)}
+          onDelete={() => setToDelete(course)}
+        />
+      ),
+    },
+  ];
 
   if (perms.isLoading || assignmentPerms.isLoading || activityPerms.isLoading) return <Page.Loading />;
   if (!perms.canRead) {
@@ -291,145 +378,19 @@ export default function CourseList() {
             />
           </Box>
         ) : (
-          <>
-            <Table colCount={7} rowCount={rows.length + 1}>
-              <Thead>
-                <Tr>
-                  <Th><Typography variant="sigma">Course</Typography></Th>
-                  <Th><Typography variant="sigma">Version</Typography></Th>
-                  <Th><Typography variant="sigma">Category</Typography></Th>
-                  <Th><Typography variant="sigma">Group Label</Typography></Th>
-                  <Th><Typography variant="sigma">Languages</Typography></Th>
-                  <Th><Typography variant="sigma">Updated</Typography></Th>
-                  <Th><Typography variant="sigma">Actions</Typography></Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {rows.map((course) => {
-                  const isPublished = course.status !== 'draft';
-                  return (
-                    <Tr
-                      key={course.documentId}
-                      onClick={() => navigate(`${BASE_PATH}/${course.documentId}`)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <Td>
-                        <Flex gap={3} alignItems="center">
-                          <Thumbnail file={course.thumbnail} status={course.status} />
-                          <Flex direction="column" alignItems="flex-start" gap={1} style={{ maxWidth: 320 }}>
-                            <Flex gap={2} alignItems="center">
-                              <Typography fontWeight="bold" ellipsis style={{ maxWidth: 350 }}>
-                                {course.title || 'Untitled course'}
-                              </Typography>
-                            </Flex>
-                            <Typography variant="pi" textColor="neutral600" ellipsis style={{ maxWidth: 320 }}>
-                              {course.companies.length ? course.companies.join(', ') : 'All companies'}
-                              {course.assignmentCount > 0 && ` · ${course.assignmentCount} assignment${course.assignmentCount === 1 ? '' : 's'}`}
-                              <span
-                                style={{
-                                  fontSize: '10px',
-                                  fontWeight: 'bold',
-                                  textTransform: 'uppercase',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px',
-                                  marginLeft: '6px',
-                                  backgroundColor: isPublished ? '#ebf5ef' : '#e6e6f9',
-                                  color: isPublished ? '#2d8a4e' : '#5a57f1',
-                                  letterSpacing: '0.5px',
-                                }}
-                              >
-                                {course.status}
-                              </span>
-                            </Typography>
-                          </Flex>
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <Typography>{course.course_version || '—'}</Typography>
-                          {course.versionCount > 1 && !filters.groupId && (
-                            <TextButton
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setFilter('groupId', course.group_id);
-                              }}
-                            >
-                              {`${course.versionCount} versions`}
-                            </TextButton>
-                          )}
-                          {course.active && course.active !== 'published' && (
-                            <Typography variant="pi" textColor="danger600">
-                              Hidden from learners
-                            </Typography>
-                          )}
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Typography>{course.course_category || '—'}</Typography>
-                      </Td>
-                      <Td>
-                        <Typography>{course.course_group_label?.name || '—'}</Typography>
-                      </Td>
-                      <Td>
-                        <Flex gap={1} wrap="wrap" style={{ maxWidth: 150 }}>
-                          {course.languages.length ? (
-                            course.languages.map((l) => <Badge key={l}>{l}</Badge>)
-                          ) : (
-                            <Typography textColor="neutral500">—</Typography>
-                          )}
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Typography variant="pi" textColor="neutral700">
-                          {formatDate(course.updatedAt)}
-                        </Typography>
-                      </Td>
-                      <Td onClick={(e) => e.stopPropagation()}>
-                        <RowActions
-                          course={course}
-                          isPublished={isPublished}
-                          perms={perms}
-                          canAssign={assignmentPerms.canAssign}
-                          onEdit={() => navigate(`${BASE_PATH}/${course.documentId}`)}
-                          onDuplicate={() => {
-                            setDuplicateError(null);
-                            setToDuplicate(course);
-                          }}
-                          onAssign={() => navigate(`${BASE_PATH}/assignments/new?course=${course.documentId}`)}
-                          onDelete={() => setToDelete(course)}
-                        />
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-
-            {pagination && pagination.pageCount > 1 && (
-              <Flex justifyContent="space-between" alignItems="center" marginTop={4}>
-                <Typography variant="pi" textColor="neutral600">
-                  {`Showing ${(pagination.page - 1) * pagination.pageSize + 1}–${Math.min(
-                    pagination.page * pagination.pageSize,
-                    pagination.total
-                  )} of ${pagination.total}`}
-                </Typography>
-                <Flex gap={2}>
-                  <Button variant="tertiary" size="S" disabled={pagination.page <= 1} onClick={() => setFilter('page', pagination.page - 1)}>
-                    Previous
-                  </Button>
-                  <Typography variant="pi">{`Page ${pagination.page} of ${pagination.pageCount}`}</Typography>
-                  <Button
-                    variant="tertiary"
-                    size="S"
-                    disabled={pagination.page >= pagination.pageCount}
-                    onClick={() => setFilter('page', pagination.page + 1)}
-                  >
-                    Next
-                  </Button>
-                </Flex>
-              </Flex>
-            )}
-          </>
+          <DataTable
+            data={rows}
+            columns={columns}
+            rowKey={(course) => course.documentId}
+            onRowClick={(course) => navigate(`${BASE_PATH}/${course.documentId}`)}
+            pagination={pagination && {
+              page: pagination.page,
+              pageSize: pagination.pageSize,
+              total: pagination.total,
+              onPageChange: (page) => setFilter('page', page),
+              onPageSizeChange: (pageSize) => setFilter('pageSize', pageSize),
+            }}
+          />
         )}
       </Layouts.Content>
 

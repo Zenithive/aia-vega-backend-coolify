@@ -16,12 +16,6 @@ import {
   Modal,
   SingleSelect,
   SingleSelectOption,
-  Table,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
   Typography,
 } from '@strapi/design-system';
 import { Pencil } from '@strapi/icons';
@@ -29,6 +23,7 @@ import { api } from '../api';
 import { useSummary } from '../summary';
 import CourseFilter, { useCourseFilter } from '../components/CourseFilter.jsx';
 import { CountLine, Empty, ErrorBox, Loading } from '../components/states.jsx';
+import DataTable from '../../../../analytics-dashboard/admin/src/components/DataTable';
 
 const STATUSES = [
   { value: 'Pending_review', label: 'Waiting for review' },
@@ -221,6 +216,8 @@ export default function AnswerReview({ canSave }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [openId, setOpenId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const load = useCallback(async () => {
     if (filterLoading) return;
@@ -240,8 +237,54 @@ export default function AnswerReview({ canSave }) {
     load();
   }, [load]);
 
+  useEffect(() => setPage(1), [query, status, pageSize]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const isPending = status === 'Pending_review';
   const idLabel = company === 'Vega' ? 'Employee ID' : 'Employee Code';
+  const columns = [
+    { key: 'emp_name', label: 'Employee' },
+    { key: 'employeeId', label: idLabel, exportValue: (_, row) => company === 'Vega' ? row.emp_id : row.emp_code, render: (_, row) => company === 'Vega' ? row.emp_id : row.emp_code },
+    { key: 'course', label: 'Course', exportValue: (course, row) => row.course_version ? `${course} (v${row.course_version})` : course, render: (course, row) => row.course_version ? `${course} (v${row.course_version})` : course },
+    { key: 'module', label: 'Module' },
+    { key: 'attempt_number', label: 'Attempt', render: (value) => value ?? '-' },
+    { key: 'submitted_at', label: 'Submitted', render: formatDateTime },
+    {
+      key: 'result',
+      label: isPending ? 'To review' : status === 'all' ? 'Result' : 'Final score',
+      exportValue: (_, row) => row.review_status !== 'Reviewed' || row.score == null
+        ? row.pending_count > 0 ? `To review: ${row.pending_count} written answers` : 'Waiting for review'
+        : `${row.score}% — ${row.passed ? 'Passed' : 'Not passed'}`,
+      render: (_, row) => {
+        const waiting = row.review_status !== 'Reviewed' || row.score == null;
+        return waiting ? (
+          <Badge backgroundColor="warning100" textColor="warning700">
+            {row.pending_count > 0
+              ? `To review: ${row.pending_count} written answer${row.pending_count === 1 ? '' : 's'}`
+              : 'Waiting for review'}
+          </Badge>
+        ) : (
+          <Flex direction="column" alignItems="flex-start" gap={1}>
+            <Badge backgroundColor={row.passed ? 'success100' : 'danger100'} textColor={row.passed ? 'success700' : 'danger700'}>
+              {`${row.score}% — ${row.passed ? 'Passed' : 'Not passed'}`}
+            </Badge>
+            {row.reviewed_by ? <Typography variant="pi" textColor="neutral600">{`by ${row.reviewed_by}`}</Typography> : null}
+          </Flex>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      label: 'Action',
+      exportValue: () => '',
+      render: (_, row) => {
+        const waiting = row.review_status !== 'Reviewed' || row.score == null;
+        return <Button variant={waiting ? 'default' : 'tertiary'} onClick={() => setOpenId(row.id)}>{waiting ? 'Review' : 'View'}</Button>;
+      },
+    },
+  ];
 
   return (
     <>
@@ -271,61 +314,19 @@ export default function AnswerReview({ canSave }) {
       ) : (
         <>
           <CountLine count={rows.length} noun="attempt" />
-          <Table colCount={8} rowCount={rows.length + 1}>
-            <Thead>
-              <Tr>
-                <Th><Typography variant="sigma">Employee</Typography></Th>
-                <Th><Typography variant="sigma">{idLabel}</Typography></Th>
-                <Th><Typography variant="sigma">Course</Typography></Th>
-                <Th><Typography variant="sigma">Module</Typography></Th>
-                <Th><Typography variant="sigma">Attempt</Typography></Th>
-                <Th><Typography variant="sigma">Submitted</Typography></Th>
-                <Th><Typography variant="sigma">{isPending ? 'To review' : status === 'all' ? 'Result' : 'Final score'}</Typography></Th>
-                <Th><Typography variant="sigma">Action</Typography></Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {rows.map((r) => {
-                // Per row: in "All attempts" both waiting and reviewed attempts are listed.
-                const waiting = r.review_status !== 'Reviewed' || r.score == null;
-                return (
-                <Tr key={r.id}>
-                  <Td><Typography>{r.emp_name}</Typography></Td>
-                  <Td><Typography>{company === 'Vega' ? r.emp_id : r.emp_code}</Typography></Td>
-                  <Td>
-                    <Typography>{r.course_version ? `${r.course} (v${r.course_version})` : r.course}</Typography>
-                  </Td>
-                  <Td><Typography>{r.module}</Typography></Td>
-                  <Td><Typography>{r.attempt_number ?? '-'}</Typography></Td>
-                  <Td><Typography>{formatDateTime(r.submitted_at)}</Typography></Td>
-                  <Td>
-                    {waiting ? (
-                      <Badge backgroundColor="warning100" textColor="warning700">
-                        {r.pending_count > 0
-                          ? `To review: ${r.pending_count} written answer${r.pending_count === 1 ? '' : 's'}`
-                          : 'Waiting for review'}
-                      </Badge>
-                    ) : (
-                      <Flex direction="column" alignItems="flex-start" gap={1}>
-                        <Badge backgroundColor={r.passed ? 'success100' : 'danger100'} textColor={r.passed ? 'success700' : 'danger700'}>
-                          {`${r.score}% — ${r.passed ? 'Passed' : 'Not passed'}`}
-                        </Badge>
-                        {r.reviewed_by ? (
-                          <Typography variant="pi" textColor="neutral600">{`by ${r.reviewed_by}`}</Typography>
-                        ) : null}
-                      </Flex>
-                    )}
-                  </Td>
-                  <Td>
-                    <Button variant={waiting ? 'default' : 'tertiary'} onClick={() => setOpenId(r.id)}>
-                      {waiting ? 'Review' : 'View'}
-                    </Button>
-                  </Td>
-                </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
+          <DataTable
+            data={pageRows}
+            columns={columns}
+            fontSize="13px"
+            rowKey={(row) => row.id}
+            pagination={{
+              page: currentPage,
+              pageSize,
+              total: rows.length,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+            }}
+          />
         </>
       )}
 

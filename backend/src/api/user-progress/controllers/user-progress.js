@@ -559,7 +559,9 @@ module.exports = createCoreController("api::user-progress.user-progress", ({ str
     }
 
     if (existing) {
-      const shouldNotifyCompletion = existing.progress_status !== 'Completed';
+      const course = await loadCourse(strapi, numCourseId);
+      const shouldNotifyCompletion =
+        existing.progress_status !== 'Completed' || isFeedbackCompulsory(course);
       // Feedback has no percentage weight. Course is already Completed after quiz pass.
       // Just ensure the record stays Completed and link the feedback submission.
       /** @type {any} */

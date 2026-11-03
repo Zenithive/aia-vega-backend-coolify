@@ -26,13 +26,7 @@ import {
   Searchbar,
   SingleSelect,
   SingleSelectOption,
-  Table,
-  Tbody,
-  Td,
   TextButton,
-  Th,
-  Thead,
-  Tr,
   Typography,
   MultiSelect,
   MultiSelectOption,
@@ -72,6 +66,7 @@ import {
   toPickerDate,
 } from '../../utils/assignment';
 import { BusyArea, ChoiceCards, Callout, ConfirmDialog } from '../../components/ui.jsx';
+import DataTable from '../../../../../analytics-dashboard/admin/src/components/DataTable';
 
 const EMPTY_FORM = {
   companyDocumentId: '',
@@ -674,119 +669,116 @@ function EmployeePicker({
           </Box>
         ) : (
           <Box>
-            <Table colCount={6} rowCount={pageRows.length + 1}>
-              <Thead>
-                <Tr>
-                  <Th><Typography variant="sigma">Employee</Typography></Th>
-                  <Th><Typography variant="sigma">Code / ID</Typography></Th>
-                  <Th><Typography variant="sigma">Department</Typography></Th>
-                  <Th><Typography variant="sigma">Progress</Typography></Th>
-                  <Th><Typography variant="sigma">Due date</Typography></Th>
-                  <Th><Typography variant="sigma">Remove</Typography></Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {pageRows.map((u) => {
-                  const isNewUser = !assignedIds.has(u.id);
-                  const entryFor = (c) => progressByKey.get(`${u.id}:${c.value}`);
-                  return (
-                    <Tr key={u.id} style={isNewUser ? { boxShadow: 'inset 3px 0 0 #4945ff' } : undefined}>
-                      <Td>
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <Flex gap={2} alignItems="center">
-                            <Typography fontWeight={isNewUser ? 'bold' : undefined}>{employeeLabel(u)}</Typography>
-                            {isNewUser && <Badge variant="primary" size="S">New</Badge>}
-                          </Flex>
-                          <Typography variant="pi" textColor="neutral600">{u.email || ''}</Typography>
+            <DataTable
+              data={pageRows}
+              rowKey={(user) => user.id}
+              rowStyle={(user) => !assignedIds.has(user.id) ? { boxShadow: 'inset 3px 0 0 #4945ff' } : undefined}
+              columns={[
+                {
+                  key: 'employee',
+                  label: 'Employee',
+                  exportValue: (_, user) => `${employeeLabel(user)} ${user.email || ''}`.trim(),
+                  render: (_, user) => {
+                    const isNewUser = !assignedIds.has(user.id);
+                    return (
+                      <Flex direction="column" alignItems="flex-start" gap={1}>
+                        <Flex gap={2} alignItems="center">
+                          <Typography fontWeight={isNewUser ? 'bold' : undefined}>{employeeLabel(user)}</Typography>
+                          {isNewUser && <Badge variant="primary" size="S">New</Badge>}
                         </Flex>
-                      </Td>
-                      <Td><Typography>{employeeCode(u) || '—'}</Typography></Td>
-                      <Td><Typography>{u.department || '—'}</Typography></Td>
-                      <Td>
-                        {isNewUser ? (
-                          <Typography variant="pi" textColor="primary600">Assigned when you save</Typography>
-                        ) : (
-                          <PerCourse courses={courses}>
-                            {(c) => {
-                              const entry = entryFor(c);
-                              if (!entry) return <Typography variant="pi" textColor="neutral500">No progress record</Typography>;
-                              const meta = PROGRESS_STATUS[entry.status] || PROGRESS_STATUS.Not_started;
-                              const line = activityLine(entry);
-                              return (
-                                <Flex direction="column" alignItems="flex-start" gap={1}>
-                                  <Badge variant={meta.variant} size="S">
-                                    {entry.status === 'In_progress' ? `${meta.label} · ${entry.percentage}%` : meta.label}
-                                  </Badge>
-                                  {line && <Typography variant="pi" textColor="neutral600">{line}</Typography>}
-                                </Flex>
-                              );
-                            }}
-                          </PerCourse>
-                        )}
-                      </Td>
-                      <Td>
-                        {isNewUser ? (
-                          <Typography variant="pi" textColor="neutral600">{newDueDate ? formatDay(newDueDate) : '—'}</Typography>
-                        ) : (
-                          <PerCourse courses={courses}>
-                            {(c) => {
-                              const entry = entryFor(c);
-                              if (!entry) return <Typography textColor="neutral500">—</Typography>;
-                              const overdue = entry.dueDate && entry.status !== 'Completed' && isPastDay(entry.dueDate);
-                              return (
-                                <Flex gap={1} alignItems="center">
-                                  <Flex direction="column" alignItems="flex-start">
-                                    <Typography textColor={overdue ? 'danger600' : 'neutral800'}>
-                                      {entry.dueDate ? formatDay(entry.dueDate) : 'Not set'}
-                                    </Typography>
-                                    {overdue && <Typography variant="pi" textColor="danger600">Overdue</Typography>}
-                                  </Flex>
-                                  {!disabled && onEditDueDate && (
-                                    <IconButton
-                                      label={`Change due date for ${employeeLabel(u)}`}
-                                      variant="ghost"
-                                      onClick={() => onEditDueDate({ user: u, entry, courseTitle: courses.length > 1 ? c.label : '' })}
-                                    >
-                                      <Pencil />
-                                    </IconButton>
-                                  )}
-                                </Flex>
-                              );
-                            }}
-                          </PerCourse>
-                        )}
-                      </Td>
-                      <Td>
-                        <IconButton label="Remove" variant="ghost" disabled={disabled} onClick={() => removeUsers([u.id])}>
-                          <Trash />
-                        </IconButton>
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-            <Flex justifyContent="space-between" alignItems="center" marginTop={3} gap={3} wrap="wrap">
-              <Typography variant="pi" textColor="neutral600">
-                {`Showing ${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, tableRows.length)} of ${tableRows.length}`}
-              </Typography>
-              <Flex gap={2} alignItems="center">
-                <Box style={{ width: 120 }}>
-                  <SingleSelect aria-label="Rows per page" size="S" value={String(pageSize)} onChange={(v) => setPageSize(Number(v))}>
-                    {[10, 25, 50, 100].map((n) => (
-                      <SingleSelectOption key={n} value={String(n)}>{`${n} per page`}</SingleSelectOption>
-                    ))}
-                  </SingleSelect>
-                </Box>
-                <Button variant="tertiary" size="S" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
-                  Previous
-                </Button>
-                <Typography variant="pi">{`Page ${currentPage} of ${pageCount}`}</Typography>
-                <Button variant="tertiary" size="S" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>
-                  Next
-                </Button>
-              </Flex>
-            </Flex>
+                        <Typography variant="pi" textColor="neutral600">{user.email || ''}</Typography>
+                      </Flex>
+                    );
+                  },
+                },
+                { key: 'code', label: 'Code / ID', exportValue: (_, user) => employeeCode(user) || '—', render: (_, user) => <Typography>{employeeCode(user) || '—'}</Typography> },
+                { key: 'department', label: 'Department', render: (_, user) => <Typography>{user.department || '—'}</Typography> },
+                {
+                  key: 'progress',
+                  label: 'Progress',
+                  exportValue: (_, user) => assignedIds.has(user.id) ? courses.map((c) => {
+                    const entry = progressByKey.get(`${user.id}:${c.value}`);
+                    return entry ? `${c.label}: ${entry.status} ${entry.percentage}%` : `${c.label}: No progress`;
+                  }).join('; ') : 'Assigned when you save',
+                  render: (_, user) => {
+                    if (!assignedIds.has(user.id)) return <Typography variant="pi" textColor="primary600">Assigned when you save</Typography>;
+                    return (
+                      <PerCourse courses={courses}>
+                        {(course) => {
+                          const entry = progressByKey.get(`${user.id}:${course.value}`);
+                          if (!entry) return <Typography variant="pi" textColor="neutral500">No progress record</Typography>;
+                          const meta = PROGRESS_STATUS[entry.status] || PROGRESS_STATUS.Not_started;
+                          const line = activityLine(entry);
+                          return (
+                            <Flex direction="column" alignItems="flex-start" gap={1}>
+                              <Badge variant={meta.variant} size="S">
+                                {entry.status === 'In_progress' ? `${meta.label} · ${entry.percentage}%` : meta.label}
+                              </Badge>
+                              {line && <Typography variant="pi" textColor="neutral600">{line}</Typography>}
+                            </Flex>
+                          );
+                        }}
+                      </PerCourse>
+                    );
+                  },
+                },
+                {
+                  key: 'dueDate',
+                  label: 'Due date',
+                  exportValue: (_, user) => assignedIds.has(user.id)
+                    ? courses.map((c) => `${c.label}: ${progressByKey.get(`${user.id}:${c.value}`)?.dueDate || 'Not set'}`).join('; ')
+                    : newDueDate ? formatDay(newDueDate) : '—',
+                  render: (_, user) => {
+                    if (!assignedIds.has(user.id)) return <Typography variant="pi" textColor="neutral600">{newDueDate ? formatDay(newDueDate) : '—'}</Typography>;
+                    return (
+                      <PerCourse courses={courses}>
+                        {(course) => {
+                          const entry = progressByKey.get(`${user.id}:${course.value}`);
+                          if (!entry) return <Typography textColor="neutral500">—</Typography>;
+                          const overdue = entry.dueDate && entry.status !== 'Completed' && isPastDay(entry.dueDate);
+                          return (
+                            <Flex gap={1} alignItems="center">
+                              <Flex direction="column" alignItems="flex-start">
+                                <Typography textColor={overdue ? 'danger600' : 'neutral800'}>
+                                  {entry.dueDate ? formatDay(entry.dueDate) : 'Not set'}
+                                </Typography>
+                                {overdue && <Typography variant="pi" textColor="danger600">Overdue</Typography>}
+                              </Flex>
+                              {!disabled && onEditDueDate && (
+                                <IconButton
+                                  label={`Change due date for ${employeeLabel(user)}`}
+                                  variant="ghost"
+                                  onClick={() => onEditDueDate({ user, entry, courseTitle: courses.length > 1 ? course.label : '' })}
+                                >
+                                  <Pencil />
+                                </IconButton>
+                              )}
+                            </Flex>
+                          );
+                        }}
+                      </PerCourse>
+                    );
+                  },
+                },
+                {
+                  key: 'remove',
+                  label: 'Remove',
+                  exportValue: () => '',
+                  render: (_, user) => (
+                    <IconButton label="Remove" variant="ghost" disabled={disabled} onClick={() => removeUsers([user.id])}>
+                      <Trash />
+                    </IconButton>
+                  ),
+                },
+              ]}
+              pagination={{
+                page: currentPage,
+                pageSize,
+                total: tableRows.length,
+                onPageChange: setPage,
+                onPageSizeChange: setPageSize,
+              }}
+            />
           </Box>
         )}
       </Box>

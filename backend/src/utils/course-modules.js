@@ -28,6 +28,10 @@ const OFFLINE_COMPLETION_UID = 'api::offline-module-completion.offline-module-co
 
 const MODULE_TYPES = { ONLINE: 'Online', OFFLINE: 'Offline' };
 
+function isFeedbackCompulsory(course) {
+  return Array.isArray(course?.feedback) && course.feedback.some((feedback) => feedback?.compulsory === true);
+}
+
 /** Deep populate of modules + their quiz (questions/options/answers/instructions). */
 const MODULE_QUIZ_POPULATE = {
   quiz: {
@@ -167,9 +171,24 @@ async function notifyCourseCompletion(strapi, userId, courseId, courseTitle = nu
       strapi.db.query(COURSE_UID).findOne({
         where: { id: Number(courseId) },
         select: ['title', 'course_version'],
+        populate: { feedback: true },
       }),
     ]);
     if (!user?.id) return;
+
+    if (isFeedbackCompulsory(course)) {
+      const feedbackSubmission = await strapi.db
+        .query('api::feedback-submission.feedback-submission')
+        .findOne({
+          where: {
+            course: Number(courseId),
+            users_permissions_user: Number(userId),
+            publishedAt: { $notNull: true },
+          },
+          select: ['id'],
+        });
+      if (!feedbackSubmission) return;
+    }
 
     const resolvedCourseTitle = courseTitle || course?.title || `Course #${courseId}`;
     const courseVersion = course?.course_version || null;
@@ -385,7 +404,7 @@ function nextStepFor(summary, course) {
     if (current.has_quiz && current.content_completed) return 'quiz_required';
     return 'continue';
   }
-  const feedbackCompulsory = course?.feedback?.[0]?.compulsory ?? false;
+  const feedbackCompulsory = isFeedbackCompulsory(course);
   return feedbackCompulsory ? 'feedback_required' : 'course_complete_allowed';
 }
 
@@ -472,6 +491,7 @@ module.exports = {
   QUIZ_SUBMISSION_UID,
   OFFLINE_COMPLETION_UID,
   MODULE_TYPES,
+  isFeedbackCompulsory,
   MODULE_QUIZ_POPULATE,
   modulesForLanguage,
   moduleKeys,

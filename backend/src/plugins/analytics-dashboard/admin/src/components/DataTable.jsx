@@ -25,6 +25,9 @@ export function DataTable({
   // Optional: replaces the built-in Excel export (e.g. a report with more detail than the table).
   onExport = null,
   exportLabel = 'Download Excel',
+  rowKey = null,
+  rowStyle = null,
+  onRowClick = null,
 }) {
   const { colors } = useTheme();
   const [downloadStyle, setDownloadStyle] = React.useState(propDownloadStyle);
@@ -248,7 +251,17 @@ export function DataTable({
           </Thead>
           <Tbody>
             {data.map((row, i) => (
-              <Tr key={i}>
+              <Tr
+                key={rowKey ? rowKey(row, i) : i}
+                onClick={onRowClick ? (event) => {
+                  if (event.target.closest?.('button, a, input, select, [role="button"]')) return;
+                  onRowClick(row, event);
+                } : undefined}
+                style={{
+                  ...(rowStyle ? rowStyle(row, i) : {}),
+                  ...(onRowClick ? { cursor: 'pointer' } : {}),
+                }}
+              >
                 {columns.map((col) => (
                   <Td key={col.key} style={col.tdStyle || undefined}>
                     {col.render ? col.render(row[col.key], row) : row[col.key]}
