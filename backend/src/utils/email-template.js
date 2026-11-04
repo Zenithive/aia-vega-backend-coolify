@@ -61,7 +61,7 @@ function buildCourseChip(courseTitle, courseVersion, accentColor, bgColor) {
 }
 
 function buildInfoBlock(label, value, accentColor, bgColor) {
-  if (!value) return '';
+  if (value == null || value === '') return '';
   const { BODY_TEXT, GRAY_TEXT, DARK } = EMAIL_THEME;
   return `<div style="background:${bgColor};border-left:4px solid ${accentColor};border-radius:8px;padding:14px 18px;margin:20px 0;">
     <p style="margin:0;font-size:14px;color:${BODY_TEXT};"><span style="color:${GRAY_TEXT};font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">${escapeHtml(label)}</span></p>
@@ -144,13 +144,15 @@ function buildNotificationBodyContent(type, message, meta = {}) {
   const courseChip = (accentColor, bgColor) => buildCourseChip(courseTitle, courseVersion, accentColor, bgColor);
 
   if (type === 'course_assigned') {
+    const dueDateLabel = meta.dueDate || null;
     return `
       ${greeting}
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        A new course has been assigned to you on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong>.
+        You have been assigned this course on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong>.
       </p>
       ${courseChip(PRIMARY, PRIMARY_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the portal and begin your learning journey. Complete the course before the due date to stay on track with your training goals.</p>
+      ${buildInfoBlock('Due date', dueDateLabel, PRIMARY, PRIMARY_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Open the course in the portal to review its modules and begin. ${dueDateLabel ? `Complete it by ${escapeHtml(dueDateLabel)}.` : 'Check the portal for any course deadline.'}</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">If you have any questions, please reach out to your Learning &amp; Development team.</p>
     `;
   }
@@ -162,8 +164,7 @@ function buildNotificationBodyContent(type, message, meta = {}) {
         Congratulations! You have successfully completed your course on the <strong style="color:${PRIMARY};">AIA-VEGA Learning Portal</strong>.
       </p>
       ${courseChip(SUCCESS, SUCCESS_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Thank you for completing your learning journey. Log in to the portal to view your course progress and certificate.</p>
-      <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">Keep up the great work!</p>
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Your course progress has been recorded as complete. Log in to the portal to review your course status.</p>
     `;
   }
 
@@ -180,14 +181,22 @@ function buildNotificationBodyContent(type, message, meta = {}) {
 
   if (type === 'due_date_reminder') {
     const dueDateLabel = meta.dueDate || null;
+    const daysRemaining = meta.daysRemaining != null && Number.isFinite(Number(meta.daysRemaining))
+      ? Number(meta.daysRemaining)
+      : null;
+    const deadlineText = daysRemaining == null
+      ? 'The due date for your assigned course is approaching.'
+      : daysRemaining === 0
+        ? 'Your assigned course is due today.'
+        : `Your assigned course is due in ${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'}.`;
     return `
       ${greeting}
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        This is a reminder that your assigned course is due in 2 days.
+        ${deadlineText}
       </p>
       ${courseChip(PRIMARY, PRIMARY_LIGHT)}
       ${buildInfoBlock('Due date', dueDateLabel, PRIMARY, PRIMARY_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the portal and complete the course by the due date.</p>
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Open the course in the portal to check your progress and complete any remaining modules before the due date.</p>
     `;
   }
 
@@ -199,25 +208,25 @@ function buildNotificationBodyContent(type, message, meta = {}) {
     return `
       ${greeting}
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        The due date for this course has passed. Your final status is <strong style="color:${ERROR};">Not Completed</strong>.
+        The due date for this course has passed. Its current status is <strong style="color:${ERROR};">Not Completed</strong>.
       </p>
       ${courseChip(ERROR, ERROR_LIGHT)}
       ${buildInfoBlock('Due date', dueDateLabel, ERROR, ERROR_LIGHT)}
-      ${buildInfoBlock('Progress at due date', progressLabel, ERROR, ERROR_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please contact your Learning &amp; Development team if you need assistance.</p>
+      ${buildInfoBlock('Progress currently recorded', progressLabel, ERROR, ERROR_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Contact your Learning &amp; Development team if you need help or believe the course status is incorrect.</p>
     `;
   }
 
   if (type === 'course_inactive_halfway') {
-    const halfwayDateLabel = meta.halfwayDate || null;
+    const assignedDateLabel = meta.assignedDate || null;
     const dueDateLabel = meta.dueDate || null;
     return `
       ${greeting}
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        You have not started this assigned course, and the halfway point of your completion period has passed. Your current status is <strong style="color:${ERROR};">Inactive</strong>.
+        You have not started this assigned course, and the halfway point of its completion period has been reached. Its current status is <strong style="color:${ERROR};">Not started</strong>.
       </p>
       ${courseChip(ERROR, ERROR_LIGHT)}
-      ${buildInfoBlock('Halfway point', halfwayDateLabel, ERROR, ERROR_LIGHT)}
+      ${buildInfoBlock('Assigned date', assignedDateLabel, ERROR, ERROR_LIGHT)}
       ${buildInfoBlock('Course due date', dueDateLabel, ERROR, ERROR_LIGHT)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please start the course and complete it by the due date.</p>
     `;
@@ -238,18 +247,22 @@ function buildNotificationBodyContent(type, message, meta = {}) {
 
   if (type === 'quiz_reviewed') {
     const passed = meta.passed === true;
-    const scoreLabel = meta.score != null ? `${meta.score}% — ${passed ? 'Passed' : 'Not passed'}` : null;
+    const resultLabel = meta.score != null
+      ? `${meta.score}%${meta.passed === true ? ' — Passed' : meta.passed === false ? ' — Not passed' : ''}`
+      : null;
+    const resultColor = meta.passed === true ? SUCCESS : meta.passed === false ? ERROR : PRIMARY;
+    const resultBgColor = meta.passed === true ? SUCCESS_LIGHT : meta.passed === false ? ERROR_LIGHT : PRIMARY_LIGHT;
     return `
       ${greeting}
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        Your quiz has been <strong style="color:${PRIMARY};">reviewed</strong> and your final result is now available.
+        Your quiz review is complete. Your result${resultLabel ? ' is shown below' : ' is available in the portal'}.
       </p>
-      ${courseChip(passed ? SUCCESS : ERROR, passed ? SUCCESS_LIGHT : ERROR_LIGHT)}
+      ${courseChip(resultColor, resultBgColor)}
       ${buildInfoBlock('Module', meta.moduleTitle, PRIMARY, PRIMARY_LIGHT)}
-      ${buildInfoBlock('Final score', scoreLabel, passed ? SUCCESS : ERROR, passed ? SUCCESS_LIGHT : ERROR_LIGHT)}
+      ${buildInfoBlock('Quiz result', resultLabel, resultColor, resultBgColor)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">${passed
-        ? 'Please log in to the portal to continue with the next module.'
-        : 'Please log in to the portal to see your options for the next attempt.'}</p>
+        ? 'Log in to the portal to continue with the next available module.'
+        : 'Log in to the portal to review the feedback and check whether another attempt is available.'}</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">If you have any questions, please reach out to your Learning &amp; Development team.</p>
     `;
   }
@@ -261,7 +274,8 @@ function buildNotificationBodyContent(type, message, meta = {}) {
         Great news! Your quiz reattempt request has been <strong style="color:${SUCCESS};">approved</strong>.
       </p>
       ${courseChip(SUCCESS, SUCCESS_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">You can now log back in to the portal and reattempt the quiz. We recommend reviewing the course material thoroughly before your next attempt to improve your score.</p>
+      ${buildInfoBlock('Request reference', meta.requestId, SUCCESS, SUCCESS_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">The reattempt is now approved. Log in to the portal to open the course and start the quiz when you are ready.</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">Best of luck! If you need any support, please contact the Learning &amp; Development team.</p>
     `;
   }
@@ -273,7 +287,8 @@ function buildNotificationBodyContent(type, message, meta = {}) {
         We regret to inform you that your quiz reattempt request has been <strong style="color:${ERROR};">rejected</strong>.
       </p>
       ${courseChip(ERROR, ERROR_LIGHT)}
-      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">If you believe this decision was made in error or would like further clarification, please reach out to your Learning &amp; Development team or your line manager.</p>
+      ${buildInfoBlock('Request reference', meta.requestId, ERROR, ERROR_LIGHT)}
+      <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">The request was not approved. Contact your Learning &amp; Development team or line manager if you need the reason for this decision or believe it was made in error.</p>
       <p style="font-size:13px;color:${GRAY_TEXT};margin:10px 0;">You may submit a new reattempt request after <strong>24 hours</strong> from the time of this notification.</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">We appreciate your commitment to learning and encourage you to continue your progress.</p>
     `;
@@ -287,8 +302,7 @@ function buildNotificationBodyContent(type, message, meta = {}) {
       </p>
       ${courseChip(ERROR, ERROR_LIGHT)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">
-        You are no longer eligible for this course. This may be due to a change in your assignment or training plan.
-        If you believe this is an error or need further clarification, please reach out to your Learning &amp; Development team or your line manager.
+        This course is no longer assigned to you. If you believe this change is incorrect or need clarification, contact your Learning &amp; Development team or line manager.
       </p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">We appreciate your commitment to learning and development.</p>
     `;

@@ -234,6 +234,7 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
     const courseTitle = course.title || `Course #${course.id}`;
     const dueDateLabel = formatDueDate(dueDate);
     const halfwayDateLabel = formatDueDate(halfwayDate);
+    const assignedDateLabel = formatDueDate(getDateInTimeZone(new Date(row.createdAt), timeZone));
     await notifUtil.sendNotification(
       'course_inactive_halfway',
       'Course Inactive Status - Halfway Reminder',
@@ -244,6 +245,7 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
         courseTitle,
         courseVersion: course.course_version || null,
         halfwayDate: halfwayDateLabel,
+        assignedDate: assignedDateLabel,
         dueDate: dueDateLabel,
         status: 'Inactive',
         userId: user.id,
