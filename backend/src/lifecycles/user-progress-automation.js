@@ -187,7 +187,11 @@ async function processPublishedAssignment(strapi, result, params = {}, { payload
         message: `"${courseTitle}" has been assigned to you.`,
         rawCourseId,
         userIds: newlyAssignedUserIds,
-        meta: { assignedBy: null, level: levelMap[targetType] || targetType },
+        meta: {
+          assignedBy: null,
+          level: levelMap[targetType] || targetType,
+          dueDate: formatDueDateForDisplay(dueDate) || null,
+        },
         targetType,
         excludeCompletedUsers: false,
       });
@@ -331,7 +335,7 @@ async function sendDueDateChangedNotifications(strapi, result, payload) {
         assignedBy: null,
       },
       targetType,
-      excludeCompletedUsers: false,
+      excludeCompletedUsers: true,
     });
   }
 }
