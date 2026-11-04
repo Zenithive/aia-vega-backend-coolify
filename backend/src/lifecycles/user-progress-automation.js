@@ -335,7 +335,7 @@ async function sendDueDateChangedNotifications(strapi, result, payload) {
         assignedBy: null,
       },
       targetType,
-      excludeCompletedUsers: false,
+      excludeCompletedUsers: true,
     });
   }
 }
