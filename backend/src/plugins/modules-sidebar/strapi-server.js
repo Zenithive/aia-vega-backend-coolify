@@ -229,12 +229,18 @@ module.exports = {
             if (!adminUser) return ctx.unauthorized('Authentication required');
 
             const adminId = adminUser.id;
-            const limit = Math.min(Number(ctx.query?.limit) || 100, 200);
-            const notifications = await strapi.db.query('api::notification.notification').findMany({
-              where: { admin_user: adminId },
-              orderBy: { createdAt: 'desc' },
-              limit,
-            });
+            const page = Math.max(1, parseInt(ctx.query?.page, 10) || 1);
+            const pageSize = Math.min(Math.max(parseInt(ctx.query?.pageSize, 10) || 10, 1), 100);
+            const where = { admin_user: adminId };
+            const [notifications, total] = await Promise.all([
+              strapi.db.query('api::notification.notification').findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                limit: pageSize,
+                offset: (page - 1) * pageSize,
+              }),
+              strapi.db.query('api::notification.notification').count({ where }),
+            ]);
 
             const notifUtil = strapi.utils?.notification;
             const enriched = await Promise.all(
@@ -256,7 +262,17 @@ module.exports = {
               })
             );
 
-            ctx.body = { data: enriched };
+            ctx.body = {
+              data: enriched,
+              meta: {
+                pagination: {
+                  page,
+                  pageSize,
+                  total,
+                  pageCount: Math.ceil(total / pageSize),
+                },
+              },
+            };
           } catch (error) {
             strapi.log.error('modules-sidebar admin-notifications error:', error);
             ctx.throw(500, error.message);
@@ -322,4 +338,3 @@ module.exports = {
     ]);
   },
 };
-
