@@ -11,6 +11,7 @@ export function DataTable({
   data = [],
   columns = [],
   title,
+  subtitle,
   pagination = null,
   sortBy = null,
   sortOrder = 'asc',
@@ -28,6 +29,7 @@ export function DataTable({
   rowKey = null,
   rowStyle = null,
   onRowClick = null,
+  tableMinWidth = null,
 }) {
   const { colors } = useTheme();
   const [downloadStyle, setDownloadStyle] = React.useState(propDownloadStyle);
@@ -120,11 +122,18 @@ export function DataTable({
     <Box padding={4} background="neutral0" hasRadius shadow="tableShadow" borderColor="neutral200" borderWidth="1px" borderStyle="solid">
       <Flex justifyContent="space-between" alignItems="center" marginBottom={4} wrap="wrap" gap={2}>
         <Flex gap={2} alignItems="center">
-          {title && (
-            <Typography variant="sigma" textColor="neutral600" fontWeight="semiBold">
-              {title}
-            </Typography>
-          )}
+          <Box>
+            {title && (
+              <Typography variant="sigma" textColor="neutral600" fontWeight="semiBold">
+                {title}
+              </Typography>
+            )}
+            {subtitle && (
+              <Typography variant="pi" textColor="neutral600">
+                {subtitle}
+              </Typography>
+            )}
+          </Box>
           {data?.length > 0 && (
             <Button
               variant="secondary"
@@ -207,7 +216,7 @@ export function DataTable({
         )}
       </Flex>
       <Box style={{ fontSize, overflowX: 'auto' }}>
-        <Table colCount={columns.length} rowCount={data.length} style={{ tableLayout: 'auto', width: 'fit-content', minWidth: '100%' }}>
+        <Table colCount={columns.length} rowCount={data.length} style={{ tableLayout: 'auto', width: 'fit-content', minWidth: tableMinWidth || '100%' }}>
           <Thead>
             <Tr>
               {columns.map((col) => {
@@ -226,7 +235,7 @@ export function DataTable({
                   : 'Click to sort by this column';
                 const headerContent = col.header != null ? col.header : <Typography variant="sigma" textColor="neutral600">{col.label}</Typography>;
                 return (
-                  <Th key={col.key} style={col.thStyle || undefined}>
+                  <Th key={col.key} style={col.thStyle || (col.width ? { width: col.width } : undefined)}>
                     <Flex
                       alignItems="center"
                       gap={1}
@@ -263,7 +272,7 @@ export function DataTable({
                 }}
               >
                 {columns.map((col) => (
-                  <Td key={col.key} style={col.tdStyle || undefined}>
+                  <Td key={col.key} style={col.tdStyle || (col.width ? { width: col.width } : undefined)}>
                     {col.render ? col.render(row[col.key], row) : row[col.key]}
                   </Td>
                 ))}
