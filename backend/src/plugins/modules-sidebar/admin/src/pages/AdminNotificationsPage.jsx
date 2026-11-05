@@ -4,8 +4,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layouts } from "@strapi/strapi/admin";
-import { Box, Typography, Flex, Loader, Badge } from "@strapi/design-system";
+import { Box, Typography, Flex, Loader, Badge, Button } from "@strapi/design-system";
 import { getFetchClient } from "@strapi/strapi/admin";
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
 
 const QUIZ_REATTEMPT_TYPES = [
   "quiz_reattempt_requested",
@@ -84,6 +86,9 @@ const quizResultStyle = (passed) => /** @type {React.CSSProperties} */ ({
 
 export default function AdminNotificationsPage() {
   const [notifications, setNotifications] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
@@ -99,11 +104,16 @@ export default function AdminNotificationsPage() {
     localStorage.setItem('aia_notif_last_visit', new Date().toISOString());
 
     const { get } = getFetchClient();
-    get("/modules-sidebar/admin-notifications?limit=100")
+    get(`/modules-sidebar/admin-notifications?page=${page}&pageSize=${pageSize}`)
       .then(({ data }) => {
         if (cancelled || !isMounted.current) return;
         const list = data?.data ?? data ?? [];
         setNotifications(Array.isArray(list) ? list : []);
+        const pagination = data?.meta?.pagination;
+        const notificationTotal = pagination?.total ?? list.length;
+        setTotal(notificationTotal);
+        const pageCount = Math.max(1, pagination?.pageCount ?? Math.ceil(notificationTotal / pageSize));
+        if (page > pageCount) setPage(pageCount);
       })
       .catch((e) => {
         if (cancelled || !isMounted.current) return;
@@ -117,7 +127,7 @@ export default function AdminNotificationsPage() {
       cancelled = true;
       isMounted.current = false;
     };
-  }, []);
+  }, [page, pageSize]);
 
   const handleNotificationClick = (notification) => {
     const type = getNormalizedType(notification);
@@ -144,6 +154,9 @@ export default function AdminNotificationsPage() {
   const isProfileEditRequest = (n) => getNormalizedType(n) === PROFILE_EDIT_REQUEST_TYPE;
   const isQuizSubmitted = (n) => n?.type === QUIZ_SUBMITTED_TYPE;
   const isFeedbackSubmitted = (n) => n?.type === FEEDBACK_SUBMITTED_TYPE;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const startItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, total);
 
   return (
     <Layouts.Root>
@@ -152,7 +165,7 @@ export default function AdminNotificationsPage() {
         subtitle={
           loading
             ? "Loading…"
-            : `${notifications.length} notification${notifications.length === 1 ? "" : "s"}`
+            : `${total} notification${total === 1 ? "" : "s"}`
         }
       />
       <Layouts.Content>
@@ -264,6 +277,61 @@ export default function AdminNotificationsPage() {
                   </Box>
                 );
               })}
+              {total > 0 && (
+                <Flex
+                  justifyContent="space-between"
+                  alignItems="center"
+                  wrap="wrap"
+                  gap={2}
+                  padding={3}
+                >
+                  <Typography variant="pi" textColor="neutral600">
+                    Showing {startItem}–{endItem} of {total}
+                  </Typography>
+                  <Flex gap={2} alignItems="center" wrap="wrap">
+                    <Typography variant="pi" textColor="neutral600">
+                      Rows per page:
+                    </Typography>
+                    <select
+                      aria-label="Notifications per page"
+                      value={pageSize}
+                      onChange={(event) => {
+                        setPageSize(Number(event.target.value));
+                        setPage(1);
+                      }}
+                      style={{
+                        padding: "4px 8px",
+                        border: "1px solid #dcdce4",
+                        borderRadius: "4px",
+                        fontSize: "14px",
+                      }}
+                    >
+                      {PAGE_SIZE_OPTIONS.map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="tertiary"
+                      size="S"
+                      disabled={page <= 1}
+                      onClick={() => setPage((current) => current - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <Typography variant="pi" textColor="neutral600">
+                      Page {page} of {pageCount}
+                    </Typography>
+                    <Button
+                      variant="tertiary"
+                      size="S"
+                      disabled={page >= pageCount}
+                      onClick={() => setPage((current) => current + 1)}
+                    >
+                      Next
+                    </Button>
+                  </Flex>
+                </Flex>
+              )}
             </Box>
           )}
         </Box>

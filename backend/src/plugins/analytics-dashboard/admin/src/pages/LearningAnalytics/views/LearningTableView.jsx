@@ -3,7 +3,8 @@
 import React from 'react';
 import { Box, Badge, Flex, Typography } from '@strapi/design-system';
 import { CourseStatusBadge, formatDate, formatMinutes, formatScore, plural } from '../../../components/learningDetailUi';
-import { CompactTable } from '../../../components/CompactTable';
+import { DataTable } from '../../../components/DataTable';
+import { exportToExcel } from '../../../components/CompactTable';
 
 /**
  * Learning Analytics – Employee Table view.
@@ -97,18 +98,40 @@ export function LearningTableView({
   const rows = data?.rows || [];
   const exportRows = applyEmployeeFilters(allRows.length > 0 ? allRows : rows, search, filterCourse);
   const normalizedCompany = String(company || '').toLowerCase();
+  const exportColumns = [
+    { label: 'Employee', value: (r) => r.employeeName },
+    { label: 'Employee ID', value: (r) => getEmployeeIdValue(r, normalizedCompany) },
+    { label: 'Email', value: (r) => r.email },
+    { label: 'Company', value: (r) => r.company },
+    { label: 'Location', value: (r) => getLocationValue(r, normalizedCompany) },
+    { label: 'Account status', value: (r) => r.accountStatus || 'Active' },
+    { label: 'Status', value: (r) => (r.coursesCompleted ? 'Completed' : r.coursesInProgress ? 'In progress' : r.coursesAssigned ? 'Not started' : '') },
+    { label: 'Overdue', value: (r) => (r.coursesOverdue ? 'Yes' : 'No') },
+    { label: 'Avg progress %', value: (r) => r.progressPercent },
+    { label: 'Online modules done', value: (r) => `${r.onlineModulesCompleted ?? 0}/${r.onlineModulesTotal ?? 0}` },
+    { label: 'Offline modules done', value: (r) => `${r.offlineModulesCompleted ?? 0}/${r.offlineModulesTotal ?? 0}` },
+    { label: 'Waiting for offline proof', value: (r) => r.offlineProofPending },
+    { label: 'Quiz attempts', value: (r) => r.quizAttempts },
+    { label: 'Avg quiz score %', value: (r) => r.avgQuizScore },
+    { label: 'Feedback given', value: (r) => r.feedbackSubmitted },
+    { label: 'Feedback pending', value: (r) => r.feedbackPending },
+    { label: 'Learning time (min)', value: (r) => r.courseCompletionTimeMinutes },
+    { label: 'Content time (min)', value: (r) => r.contentMinutes },
+    { label: 'Quiz time (min)', value: (r) => r.quizMinutes },
+    { label: 'Last activity', value: (r) => formatDate(r.lastActivityAt) },
+  ];
 
   return (
     <Box marginBottom={6}>
-      <CompactTable
+      <DataTable
         title="Employee learning summary"
         subtitle="Learning progress and activity for each employee."
-        rows={rows}
-        allRows={exportRows}
-        getRowKey={(row) => row.employeeId}
+        data={rows}
+        rowKey={(row) => row.employeeId}
         emptyMessage="No employees found. Try adjusting filters or search."
-        exportFileName="employee-learning-summary.xlsx"
         tableMinWidth={2300}
+        fontSize="14px"
+        onExport={() => exportToExcel(exportRows, exportColumns, 'employee-learning-summary.xlsx', 'Employee learning summary')}
         pagination={{
           page: data?.page || 1,
           pageSize: data?.pageSize || 10,
@@ -260,29 +283,10 @@ export function LearningTableView({
                 <Typography variant="pi" textColor="neutral500">No activity</Typography>
               ),
           },
-        ]}
-        exportColumns={[
-          { label: 'Employee', value: (r) => r.employeeName },
-          { label: 'Employee ID', value: (r) => getEmployeeIdValue(r, normalizedCompany) },
-          { label: 'Email', value: (r) => r.email },
-          { label: 'Company', value: (r) => r.company },
-          { label: 'Location', value: (r) => getLocationValue(r, normalizedCompany) },
-          { label: 'Account status', value: (r) => r.accountStatus || 'Active' },
-          { label: 'Status', value: (r) => (r.coursesCompleted ? 'Completed' : r.coursesInProgress ? 'In progress' : r.coursesAssigned ? 'Not started' : '') },
-          { label: 'Overdue', value: (r) => (r.coursesOverdue ? 'Yes' : 'No') },
-          { label: 'Avg progress %', value: (r) => r.progressPercent },
-          { label: 'Online modules done', value: (r) => `${r.onlineModulesCompleted ?? 0}/${r.onlineModulesTotal ?? 0}` },
-          { label: 'Offline modules done', value: (r) => `${r.offlineModulesCompleted ?? 0}/${r.offlineModulesTotal ?? 0}` },
-          { label: 'Waiting for offline proof', value: (r) => r.offlineProofPending },
-          { label: 'Quiz attempts', value: (r) => r.quizAttempts },
-          { label: 'Avg quiz score %', value: (r) => r.avgQuizScore },
-          { label: 'Feedback given', value: (r) => r.feedbackSubmitted },
-          { label: 'Feedback pending', value: (r) => r.feedbackPending },
-          { label: 'Learning time (min)', value: (r) => r.courseCompletionTimeMinutes },
-          { label: 'Content time (min)', value: (r) => r.contentMinutes },
-          { label: 'Quiz time (min)', value: (r) => r.quizMinutes },
-          { label: 'Last activity', value: (r) => formatDate(r.lastActivityAt) },
-        ]}
+        ].map((column) => ({
+          ...column,
+          render: column.render ? (_, row) => column.render(row) : undefined,
+        }))}
       />
     </Box>
   );
