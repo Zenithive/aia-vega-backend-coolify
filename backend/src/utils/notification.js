@@ -111,7 +111,7 @@ module.exports = (strapi) => {
   async function sendEmail(to, subject, body, htmlOverride) {
     if (!to || !subject) {
       console.log(`[EMAIL] ❌ Skipped — missing to="${to}" or subject="${subject}"`);
-      return;
+      return false;
     }
 
     const emailEnabled = isEmailEnabled();
@@ -120,7 +120,7 @@ module.exports = (strapi) => {
     if (!emailEnabled) {
       console.log(`[EMAIL] ❌ Blocked — EMAIL_ENABLED is false. Set EMAIL_ENABLED=true in .env to send emails.`);
       strapi.log.warn(`[notification.sendEmail] Email blocked: EMAIL_ENABLED=false (to: ${to})`);
-      return;
+      return false;
     }
 
     console.log(`[EMAIL] 📤 Attempting to send email:`);
@@ -146,12 +146,13 @@ module.exports = (strapi) => {
     if (!emailService || typeof emailService.send !== 'function') {
       console.log(`[EMAIL] ❌ Email plugin service not found — check config/plugins.js and EMAIL_ENABLED in .env`);
       strapi.log.warn('[notification] Email plugin not available – skipping send. Enable email in config/plugins.js and set SMTP_* in .env');
-      return;
+      return false;
     }
 
     try {
       await emailService.send(payload);
       console.log(`[EMAIL] ✅ Email sent successfully to: ${to}`);
+      return true;
     } catch (err) {
       const msg = err?.message || String(err);
       console.log(`[EMAIL] ❌ Email send FAILED to: ${to}`);
@@ -164,6 +165,7 @@ module.exports = (strapi) => {
         console.log(`[EMAIL]   → HINT: Authentication failed. Check SMTP_USERNAME and SMTP_PASSWORD in .env`);
       }
       strapi.log.error('[notification] Email send failed:', msg);
+      return false;
     }
   }
 
@@ -369,13 +371,14 @@ module.exports = (strapi) => {
    * @param {Array} usersArray - Array of user objects { id, email } (portal users)
    * @param {Object} meta - Additional metadata
    * @param {Array} adminRoles - Admin role codes: ['admin','LMadmin','HRadmin']
-   * @param {Object} options - { sendEmail: true, sendSocket: true }
+   * @param {Object} options - { sendEmail: true, sendSocket: true, awaitEmail: false }
    *   Learner email is limited to supported notification types and requires options.sendEmail
-   *   plus process.env.EMAIL_ENABLED.
+   *   plus process.env.EMAIL_ENABLED. awaitEmail returns delivery counts for callers that need
+   *   to persist retry/deduplication state only after the email provider accepts the message.
    *   In-app (DB) and socket delivery are independent of EMAIL_ENABLED.
    */
   async function sendNotification(type, title, message, usersArray = [], meta = {}, adminRoles = [], options = {}) {
-    const { sendEmail: doEmail = true, sendSocket: doSocket = true } = options;
+    const { sendEmail: doEmail = true, sendSocket: doSocket = true, awaitEmail = false } = options;
     const globalEmailEnabled = isEmailEnabled();
     const shouldSendEmail =
       doEmail && globalEmailEnabled && isLearnerEmailNotificationAllowed(type);
@@ -388,6 +391,8 @@ module.exports = (strapi) => {
     const users = Array.isArray(usersArray) ? usersArray.filter(Boolean) : [];
     const roles = Array.isArray(adminRoles) ? adminRoles.filter(Boolean) : [];
     const enrichedMeta = await enrichMeta(meta);
+    let emailSentCount = 0;
+    let emailFailedCount = 0;
 
     const payload = { type, title, message, meta: enrichedMeta };
 
@@ -420,9 +425,20 @@ module.exports = (strapi) => {
         });
         if (shouldSendEmail && user?.email) {
           const htmlBody = buildUserNotificationEmailHtml(type, title, message, userMeta);
-          void sendEmail(user.email, title, message, htmlBody).catch((err) => {
-            strapi.log.error('[notification] Background email send failed:', err?.message || err);
-          });
+          if (awaitEmail) {
+            if (await sendEmail(user.email, title, message, htmlBody)) {
+              emailSentCount += 1;
+            } else {
+              emailFailedCount += 1;
+            }
+          } else {
+            void sendEmail(user.email, title, message, htmlBody).catch((err) => {
+              strapi.log.error('[notification] Background email send failed:', err?.message || err);
+            });
+          }
+        } else if (shouldSendEmail && awaitEmail) {
+          emailFailedCount += 1;
+          strapi.log.warn(`[notification] Email not sent: recipient email is missing (userId=${userId}, type=${type})`);
         }
         if (doSocket && strapi.$io) {
           triggerSocket([String(userId)], { ...userPayload, id: notification?.id });
@@ -456,7 +472,9 @@ module.exports = (strapi) => {
           strapi.log.error('[notification] sendNotification admin error:', err?.message || err);
         }
       }
+
     }
+    return { emailSentCount, emailFailedCount };
   }
 
   return {
