@@ -16,6 +16,37 @@ function getDateInTimeZone(date, timeZone) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function getStartOfDateInTimeZone(dateValue, timeZone) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  const targetUtc = Date.UTC(year, month - 1, day);
+  let timestamp = targetUtc;
+
+  for (let i = 0; i < 2; i += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(timestamp));
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    const representedUtc = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second)
+    );
+    timestamp = targetUtc - (representedUtc - timestamp);
+  }
+
+  return new Date(timestamp);
+}
+
 function addDays(dateValue, days) {
   const date = new Date(`${dateValue}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -145,7 +176,7 @@ async function sendCourseDueDateExpiredNotifications(strapi, now = new Date(), t
   const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
     where: {
       due_date: { $lt: today },
-      progress_percentage: { $gt: 0, $lt: 100 },
+      progress_percentage: { $gte: 0, $lt: 100 },
       progress_status: { $ne: 'Completed' },
       publishedAt: { $notNull: true },
     },
@@ -314,7 +345,7 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
   return sentCount;
 }
 
-async function sendCourseFeedbackReminders(strapi, now = new Date()) {
+async function sendCourseFeedbackReminders(strapi, now = new Date(), timeZone = 'UTC') {
   const notifUtil = strapi.utils?.notification;
   if (!notifUtil) {
     throw new Error('Notification utility is unavailable for course feedback reminders');
@@ -324,11 +355,13 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
     return 0;
   }
 
-  const completedBefore = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  const today = getDateInTimeZone(now, timeZone);
+  const completedThrough = addDays(today, -2);
+  const completedBefore = getStartOfDateInTimeZone(addDays(completedThrough, 1), timeZone);
   const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
     where: {
       progress_status: 'Completed',
-      completed_at: { $lte: completedBefore },
+      completed_at: { $lt: completedBefore },
       publishedAt: { $notNull: true },
     },
     select: ['id', 'documentId', 'completed_at'],
@@ -355,7 +388,10 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
     }
 
     const completedAtDate = new Date(row.completed_at);
-    if (Number.isNaN(completedAtDate.getTime()) || completedAtDate > completedBefore) {
+    if (
+      Number.isNaN(completedAtDate.getTime()) ||
+      getDateInTimeZone(completedAtDate, timeZone) > completedThrough
+    ) {
       skippedCount += 1;
       continue;
     }

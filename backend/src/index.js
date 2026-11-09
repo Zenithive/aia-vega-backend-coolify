@@ -707,7 +707,7 @@ module.exports = {
         },
         courseFeedbackReminderDaily: {
           task: async ({ strapi: s }) => {
-            await sendCourseFeedbackReminders(s, new Date());
+            await sendCourseFeedbackReminders(s, new Date(), CRON_TZ);
           },
           options: { rule: '0 0 8 * * *', tz: CRON_TZ },
         },
