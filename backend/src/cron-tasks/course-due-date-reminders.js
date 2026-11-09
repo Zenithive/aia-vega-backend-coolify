@@ -45,6 +45,10 @@ async function sendCourseDueDateReminders(strapi, now = new Date(), timeZone = '
   if (!notifUtil) {
     throw new Error('Notification utility is unavailable for course due-date reminders');
   }
+  if (typeof notifUtil.isEmailEnabled === 'function' && !notifUtil.isEmailEnabled()) {
+    strapi.log.info('course due-date reminders: skipped because EMAIL_ENABLED is false');
+    return 0;
+  }
 
   const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
     where: {
@@ -66,21 +70,31 @@ async function sendCourseDueDateReminders(strapi, now = new Date(), timeZone = '
   );
   const processedLearners = new Set();
   let sentCount = 0;
+  let skippedCount = 0;
 
   for (const row of rows || []) {
     const user = row.user;
     const course = row.course;
-    if (!row.id || !user?.id || !user.email || !course?.id) continue;
+    if (!row.id || !user?.id || !user.email || !course?.id) {
+      skippedCount += 1;
+      continue;
+    }
 
     const learnerCourseKey = `${user.id}:${course.id}`;
-    if (processedLearners.has(learnerCourseKey)) continue;
+    if (processedLearners.has(learnerCourseKey)) {
+      skippedCount += 1;
+      continue;
+    }
     processedLearners.add(learnerCourseKey);
 
-    if (sentProgressIds.has(row.id)) continue;
+    if (sentProgressIds.has(row.id)) {
+      skippedCount += 1;
+      continue;
+    }
     const courseTitle = course.title || `Course #${course.id}`;
     const dueDateLabel = formatDueDate(dueDate);
 
-    await notifUtil.sendNotification(
+    const delivery = await notifUtil.sendNotification(
       'due_date_reminder',
       'Course Due Date Reminder',
       `"${courseTitle}" is due in 2 days, on ${dueDateLabel}.`,
@@ -95,8 +109,15 @@ async function sendCourseDueDateReminders(strapi, now = new Date(), timeZone = '
         userName: user.username || user.email,
       },
       [],
-      { sendEmail: true, sendSocket: true }
+      { sendEmail: true, sendSocket: true, awaitEmail: true }
     );
+    if (delivery?.emailSentCount !== 1) {
+      strapi.log.warn(
+        `course due-date reminders: email not confirmed for userId=${user.id}, courseId=${course.id}; will retry`
+      );
+      skippedCount += 1;
+      continue;
+    }
 
     sentProgressIds.add(row.id);
     await store.set({
@@ -106,11 +127,7 @@ async function sendCourseDueDateReminders(strapi, now = new Date(), timeZone = '
     sentCount += 1;
   }
 
-  strapi.log.info(
-    'course due-date reminders: processed %d learner(s) with due date %s',
-    sentCount,
-    dueDate
-  );
+  strapi.log.info(`course due-date reminders: matched ${rows?.length || 0} row(s); sent ${sentCount} email(s); skipped ${skippedCount}; due date ${dueDate}`);
   return sentCount;
 }
 
@@ -142,22 +159,32 @@ async function sendCourseDueDateExpiredNotifications(strapi, now = new Date(), t
   const store = strapi.store({ type: 'core', name: 'course-due-date-expiry-notifications' });
   const processedLearners = new Set();
   let sentCount = 0;
+  let skippedCount = 0;
 
   for (const row of rows || []) {
     const user = row.user;
     const course = row.course;
-    if (!row.id || !user?.id || !user.email || !course?.id) continue;
+    if (!row.id || !user?.id || !user.email || !course?.id) {
+      skippedCount += 1;
+      continue;
+    }
 
     const learnerCourseKey = `${user.id}:${course.id}:${row.due_date}`;
-    if (processedLearners.has(learnerCourseKey)) continue;
+    if (processedLearners.has(learnerCourseKey)) {
+      skippedCount += 1;
+      continue;
+    }
     processedLearners.add(learnerCourseKey);
 
     const storeKey = `sent_${user.id}_${course.id}_${row.due_date}`;
-    if (await store.get({ key: storeKey })) continue;
+    if (await store.get({ key: storeKey })) {
+      skippedCount += 1;
+      continue;
+    }
 
     const courseTitle = course.title || `Course #${course.id}`;
     const dueDateLabel = formatDueDate(String(row.due_date).slice(0, 10));
-    await notifUtil.sendNotification(
+    const delivery = await notifUtil.sendNotification(
       'course_due_date_expired',
       'Course Due Date Expired',
       `The due date for "${courseTitle}" has passed. Status: Not Completed.`,
@@ -173,17 +200,21 @@ async function sendCourseDueDateExpiredNotifications(strapi, now = new Date(), t
         userName: user.username || user.email,
       },
       [],
-      { sendEmail: true, sendSocket: true }
+      { sendEmail: true, sendSocket: true, awaitEmail: true }
     );
+    if (delivery?.emailSentCount !== 1) {
+      strapi.log.warn(
+        `course due-date expiry: email not confirmed for userId=${user.id}, courseId=${course.id}, dueDate=${row.due_date}; will retry`
+      );
+      skippedCount += 1;
+      continue;
+    }
 
     await store.set({ key: storeKey, value: true });
     sentCount += 1;
   }
 
-  strapi.log.info(
-    'course due-date expiry notifications: processed %d learner(s) with expired partial progress',
-    sentCount
-  );
+  strapi.log.info(`course due-date expiry notifications: matched ${rows?.length || 0} row(s); sent ${sentCount} email(s); skipped ${skippedCount}`);
   return sentCount;
 }
 
@@ -214,28 +245,41 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
   const store = strapi.store({ type: 'core', name: 'course-not-started-halfway-notifications' });
   const processedLearners = new Set();
   let sentCount = 0;
+  let skippedCount = 0;
 
   for (const row of rows || []) {
     const user = row.user;
     const course = row.course;
-    if (!row.id || !row.createdAt || !row.due_date || !user?.id || !user.email || !course?.id) continue;
+    if (!row.id || !row.createdAt || !row.due_date || !user?.id || !user.email || !course?.id) {
+      skippedCount += 1;
+      continue;
+    }
 
     const dueDate = String(row.due_date).slice(0, 10);
     const halfwayDate = getHalfwayDate(row.createdAt, dueDate, timeZone);
-    if (!halfwayDate || today < halfwayDate) continue;
+    if (!halfwayDate || today < halfwayDate) {
+      skippedCount += 1;
+      continue;
+    }
 
     const learnerCourseKey = `${user.id}:${course.id}:${dueDate}`;
-    if (processedLearners.has(learnerCourseKey)) continue;
+    if (processedLearners.has(learnerCourseKey)) {
+      skippedCount += 1;
+      continue;
+    }
     processedLearners.add(learnerCourseKey);
 
     const storeKey = `sent_${user.id}_${course.id}_${dueDate}`;
-    if (await store.get({ key: storeKey })) continue;
+    if (await store.get({ key: storeKey })) {
+      skippedCount += 1;
+      continue;
+    }
 
     const courseTitle = course.title || `Course #${course.id}`;
     const dueDateLabel = formatDueDate(dueDate);
     const halfwayDateLabel = formatDueDate(halfwayDate);
     const assignedDateLabel = formatDueDate(getDateInTimeZone(new Date(row.createdAt), timeZone));
-    await notifUtil.sendNotification(
+    const delivery = await notifUtil.sendNotification(
       'course_inactive_halfway',
       'Course Inactive Status - Halfway Reminder',
       `You have not started "${courseTitle}" and have reached the halfway point of the completion period. Status: Inactive.`,
@@ -252,14 +296,21 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
         userName: user.username || user.email,
       },
       [],
-      { sendEmail: true, sendSocket: true }
+      { sendEmail: true, sendSocket: true, awaitEmail: true }
     );
+    if (delivery?.emailSentCount !== 1) {
+      strapi.log.warn(
+        `course halfway reminders: email not confirmed for userId=${user.id}, courseId=${course.id}, dueDate=${dueDate}; will retry`
+      );
+      skippedCount += 1;
+      continue;
+    }
 
     await store.set({ key: storeKey, value: true });
     sentCount += 1;
   }
 
-  strapi.log.info('course halfway reminders: processed %d learner(s) who have not started', sentCount);
+  strapi.log.info(`course halfway reminders: matched ${rows?.length || 0} row(s); sent ${sentCount} email(s); skipped ${skippedCount}`);
   return sentCount;
 }
 
@@ -293,20 +344,33 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
   const store = strapi.store({ type: 'core', name: 'course-feedback-reminders' });
   const processedLearners = new Set();
   let sentCount = 0;
+  let skippedCount = 0;
 
   for (const row of rows || []) {
     const user = row.user;
     const course = row.course;
-    if (!row.id || !row.completed_at || !user?.id || !user.email || !course?.id) continue;
+    if (!row.id || !row.completed_at || !user?.id || !user.email || !course?.id) {
+      skippedCount += 1;
+      continue;
+    }
 
     const completedAtDate = new Date(row.completed_at);
-    if (Number.isNaN(completedAtDate.getTime()) || completedAtDate > completedBefore) continue;
+    if (Number.isNaN(completedAtDate.getTime()) || completedAtDate > completedBefore) {
+      skippedCount += 1;
+      continue;
+    }
 
     const learnerCourseKey = `${user.id}:${course.id}`;
-    if (processedLearners.has(learnerCourseKey)) continue;
+    if (processedLearners.has(learnerCourseKey)) {
+      skippedCount += 1;
+      continue;
+    }
     processedLearners.add(learnerCourseKey);
 
-    if (!isFeedbackCompulsory(course)) continue;
+    if (!isFeedbackCompulsory(course)) {
+      skippedCount += 1;
+      continue;
+    }
 
     const feedbackSubmission = await strapi.db.query(FEEDBACK_SUBMISSION_UID).findOne({
       where: {
@@ -316,14 +380,20 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
       },
       select: ['id'],
     });
-    if (feedbackSubmission) continue;
+    if (feedbackSubmission) {
+      skippedCount += 1;
+      continue;
+    }
 
     const completedAt = completedAtDate.toISOString();
     const storeKey = `sent_${row.documentId || row.id}_${Date.parse(completedAt)}`;
-    if (await store.get({ key: storeKey })) continue;
+    if (await store.get({ key: storeKey })) {
+      skippedCount += 1;
+      continue;
+    }
 
     const courseTitle = course.title || `Course #${course.id}`;
-    await notifUtil.sendNotification(
+    const delivery = await notifUtil.sendNotification(
       'course_feedback_reminder',
       'Course Feedback Reminder',
       `You completed "${courseTitle}" at least 2 days ago. Please submit the required course feedback.`,
@@ -336,14 +406,21 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
         userName: user.username || user.email,
       },
       [],
-      { sendEmail: true, sendSocket: true }
+      { sendEmail: true, sendSocket: true, awaitEmail: true }
     );
+    if (delivery?.emailSentCount !== 1) {
+      strapi.log.warn(
+        `course feedback reminders: email not confirmed for userId=${user.id}, courseId=${course.id}; will retry`
+      );
+      skippedCount += 1;
+      continue;
+    }
 
     await store.set({ key: storeKey, value: true });
     sentCount += 1;
   }
 
-  strapi.log.info('course feedback reminders: processed %d learner(s)', sentCount);
+  strapi.log.info(`course feedback reminders: matched ${rows?.length || 0} row(s); sent ${sentCount} email(s); skipped ${skippedCount}`);
   return sentCount;
 }
 
