@@ -345,7 +345,7 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
   return sentCount;
 }
 
-async function sendCourseFeedbackReminders(strapi, now = new Date(), timeZone = 'UTC') {
+async function sendCourseFeedbackReminders(strapi) {
   const notifUtil = strapi.utils?.notification;
   if (!notifUtil) {
     throw new Error('Notification utility is unavailable for course feedback reminders');
@@ -355,13 +355,10 @@ async function sendCourseFeedbackReminders(strapi, now = new Date(), timeZone = 
     return 0;
   }
 
-  const today = getDateInTimeZone(now, timeZone);
-  const completedThrough = addDays(today, -2);
-  const completedBefore = getStartOfDateInTimeZone(addDays(completedThrough, 1), timeZone);
   const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
     where: {
       progress_status: 'Completed',
-      completed_at: { $lt: completedBefore },
+      completed_at: { $notNull: true },
       publishedAt: { $notNull: true },
     },
     select: ['id', 'documentId', 'completed_at'],
@@ -388,10 +385,7 @@ async function sendCourseFeedbackReminders(strapi, now = new Date(), timeZone = 
     }
 
     const completedAtDate = new Date(row.completed_at);
-    if (
-      Number.isNaN(completedAtDate.getTime()) ||
-      getDateInTimeZone(completedAtDate, timeZone) > completedThrough
-    ) {
+    if (Number.isNaN(completedAtDate.getTime())) {
       skippedCount += 1;
       continue;
     }
@@ -432,7 +426,7 @@ async function sendCourseFeedbackReminders(strapi, now = new Date(), timeZone = 
     const delivery = await notifUtil.sendNotification(
       'course_feedback_reminder',
       'Course Feedback Reminder',
-      `You completed "${courseTitle}" at least 2 days ago. Please submit the required course feedback.`,
+      `You completed "${courseTitle}". Please submit the required course feedback.`,
       [{ id: user.id, email: user.email, username: user.username }],
       {
         courseId: course.id,
