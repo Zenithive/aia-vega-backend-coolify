@@ -172,7 +172,7 @@ function buildNotificationBodyContent(type, message, meta = {}) {
     return `
       ${greeting}
       <p style="font-size:15px;color:${BODY_TEXT};margin:0 0 10px;">
-        You completed this course at least 2 days ago, but its required feedback has not been submitted yet.
+        You completed this course, but its required feedback has not been submitted yet.
       </p>
       ${courseChip(PRIMARY, PRIMARY_LIGHT)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">Please log in to the AIA-VEGA Learning Portal and submit the course feedback. Your feedback helps us improve future learning experiences.</p>

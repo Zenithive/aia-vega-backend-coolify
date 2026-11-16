@@ -314,7 +314,7 @@ async function sendCourseNotStartedHalfwayNotifications(strapi, now = new Date()
   return sentCount;
 }
 
-async function sendCourseFeedbackReminders(strapi, now = new Date()) {
+async function sendCourseFeedbackReminders(strapi) {
   const notifUtil = strapi.utils?.notification;
   if (!notifUtil) {
     throw new Error('Notification utility is unavailable for course feedback reminders');
@@ -324,11 +324,10 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
     return 0;
   }
 
-  const completedBefore = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
   const rows = await strapi.db.query(USER_PROGRESS_UID).findMany({
     where: {
       progress_status: 'Completed',
-      completed_at: { $lte: completedBefore },
+      completed_at: { $notNull: true },
       publishedAt: { $notNull: true },
     },
     select: ['id', 'documentId', 'completed_at'],
@@ -355,7 +354,7 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
     }
 
     const completedAtDate = new Date(row.completed_at);
-    if (Number.isNaN(completedAtDate.getTime()) || completedAtDate > completedBefore) {
+    if (Number.isNaN(completedAtDate.getTime())) {
       skippedCount += 1;
       continue;
     }
@@ -396,7 +395,7 @@ async function sendCourseFeedbackReminders(strapi, now = new Date()) {
     const delivery = await notifUtil.sendNotification(
       'course_feedback_reminder',
       'Course Feedback Reminder',
-      `You completed "${courseTitle}" at least 2 days ago. Please submit the required course feedback.`,
+      `You completed "${courseTitle}". Please submit the required course feedback.`,
       [{ id: user.id, email: user.email, username: user.username }],
       {
         courseId: course.id,
