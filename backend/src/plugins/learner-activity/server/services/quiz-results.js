@@ -158,7 +158,9 @@ module.exports = ({ strapi }) => {
             'Question': question?.question_text || a.question || a.question_id || '',
             'Question type': String(a.question_type || '').replace('_', ' '),
             'Learner answer': learnerAnswer(a, question),
-            'Answer correct': a.correct === true ? 'Yes' : a.correct === false ? 'No' : 'Not marked yet',
+            'Answer result': a.question_type === 'Descriptive'
+              ? (Number.isInteger(a.point) ? `${a.point}/10` : typeof a.correct === 'boolean' ? `${a.correct ? 10 : 0}/10` : 'Not marked yet')
+              : a.correct === true ? 'Yes' : a.correct === false ? 'No' : 'Not marked yet',
           });
         });
       }

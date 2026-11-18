@@ -37,7 +37,19 @@
       }
     },
     "point": {
-      "type": "integer"
+      "type": "integer",
+      "min": 0,
+      "max": 10,
+      "conditions": {
+        "visible": {
+          "==": [
+            {
+              "var": "question_type"
+            },
+            "Descriptive"
+          ]
+        }
+      }
     },
     "correct": {
       "type": "boolean"

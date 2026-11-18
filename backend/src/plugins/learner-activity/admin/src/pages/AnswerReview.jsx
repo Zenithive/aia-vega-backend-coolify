@@ -14,6 +14,7 @@ import {
   Flex,
   Loader,
   Modal,
+  NumberInput,
   SingleSelect,
   SingleSelectOption,
   Typography,
@@ -47,11 +48,13 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
   const { toggleNotification } = useNotification();
   const [detail, setDetail] = useState(null);
   const [marks, setMarks] = useState({});
+  const [pointErrors, setPointErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setDetail(null);
+    setPointErrors({});
     api
       .get(`/reviews/${submissionId}`)
       .then((d) => {
@@ -59,7 +62,11 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
         setDetail(d || null);
         const initial = {};
         (d?.answers || []).forEach((a) => {
-          if (a.needs_review) initial[a.question_id] = { correct: a.correct };
+          if (a.needs_review) {
+            initial[a.question_id] = {
+              point: Number.isInteger(a.point) && a.point >= 0 && a.point <= 10 ? a.point : undefined,
+            };
+          }
         });
         setMarks(initial);
       })
@@ -72,13 +79,21 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
   // A published review is final: reviewed attempts open read-only.
   const editable = canSave && detail?.review_status !== 'Reviewed';
   const toReview = (detail?.answers || []).filter((a) => a.needs_review);
-  const unmarked = toReview.filter((a) => typeof marks[a.question_id]?.correct !== 'boolean').length;
+  const hasInvalidPoint = Object.values(pointErrors).some(Boolean);
+  const unmarked = toReview.filter((a) => !Number.isInteger(marks[a.question_id]?.point)
+    || marks[a.question_id].point < 0 || marks[a.question_id].point > 10).length;
 
-  // Live preview of the final score with the current marks (1 point per quiz question).
+  // Live preview of the final weighted score: objective questions are 1 point, descriptive 10.
   const preview = useMemo(() => {
     if (!detail) return null;
-    const total = detail.total_questions || detail.answers.length || 1;
-    const earned = detail.answers.filter((a) => (a.needs_review ? marks[a.question_id]?.correct === true : a.correct === true)).length;
+    const total = detail.total_points || detail.answers.reduce((sum, a) => sum + (a.question_type === 'Descriptive' ? 10 : 1), 0) || 1;
+    const earned = detail.answers.reduce((sum, a) => {
+      if (a.question_type === 'Descriptive') {
+        const point = a.needs_review ? marks[a.question_id]?.point : a.point;
+        return sum + (Number.isInteger(point) ? Math.max(0, Math.min(10, point)) : 0);
+      }
+      return sum + (a.correct === true ? 1 : 0);
+    }, 0);
     const score = Math.round((earned / total) * 100);
     return { score, passed: score >= Number(detail.pass_mark || 0) };
   }, [detail, marks]);
@@ -89,7 +104,7 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
     setSaving(true);
     try {
       await api.put(`/reviews/${submissionId}`, {
-        answers: toReview.map((a) => ({ question_id: a.question_id, correct: marks[a.question_id]?.correct })),
+        answers: toReview.map((a) => ({ question_id: a.question_id, point: marks[a.question_id]?.point })),
       });
       toggleNotification({ type: 'success', message: `Review saved — ${detail.emp_name} can now see the final score.` });
       onSaved();
@@ -155,24 +170,42 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
                   ) : null}
 
                   {a.needs_review && editable ? (
-                    <Flex gap={2} paddingTop={2}>
-                      <Button
-                        variant={marks[a.question_id]?.correct === true ? 'success' : 'tertiary'}
+                    <Field.Root name={`points-${a.question_id}`} hint="Enter an integer from 0 to 10.">
+                      <Field.Label>Points awarded (out of 10)</Field.Label>
+                      <NumberInput
+                        min={0}
+                        max={10}
+                        step={1}
+                        value={marks[a.question_id]?.point ?? undefined}
                         disabled={saving}
-                        onClick={() => setMark(a.question_id, { correct: true })}
-                      >
-                        Correct
-                      </Button>
-                      <Button
-                        variant={marks[a.question_id]?.correct === false ? 'danger' : 'tertiary'}
-                        disabled={saving}
-                        onClick={() => setMark(a.question_id, { correct: false })}
-                      >
-                        Incorrect
-                      </Button>
-                    </Flex>
+                        onValueChange={(value) => {
+                          if (value == null || value === '') {
+                            setMark(a.question_id, { point: undefined });
+                            setPointErrors((prev) => ({ ...prev, [a.question_id]: '' }));
+                            return;
+                          }
+                          const numeric = Number(value);
+                          if (!Number.isInteger(numeric) || numeric < 0 || numeric > 10) {
+                            setPointErrors((prev) => ({
+                              ...prev,
+                              [a.question_id]: 'Enter a whole number from 0 to 10.',
+                            }));
+                            return;
+                          }
+                          setMark(a.question_id, { point: numeric });
+                          setPointErrors((prev) => ({ ...prev, [a.question_id]: '' }));
+                        }}
+                      />
+                      {pointErrors[a.question_id] ? (
+                        <Typography variant="pi" textColor="danger600" aria-live="polite">
+                          {pointErrors[a.question_id]}
+                        </Typography>
+                      ) : null}
+                    </Field.Root>
                   ) : (
-                    <ResultBadge correct={a.correct} />
+                    a.question_type === 'Descriptive' && Number.isInteger(a.point)
+                      ? <Badge backgroundColor="primary100" textColor="primary700">{`${a.point}/10 points`}</Badge>
+                      : <ResultBadge correct={a.correct} />
                   )}
                 </Box>
               ))}
@@ -195,7 +228,7 @@ function ReviewModal({ submissionId, canSave, onClose, onSaved }) {
                 </Typography>
               ) : null}
               {editable ? (
-                <Button onClick={save} loading={saving} disabled={unmarked > 0 || saving}>
+                <Button onClick={save} loading={saving} disabled={unmarked > 0 || hasInvalidPoint || saving}>
                   Publish result
                 </Button>
               ) : null}
