@@ -120,10 +120,9 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null,
           .filter((v) => v != null);
       };
 
-      // Helper: use point from question if present, else 1 point per question (when point field removed)
+      // Objective questions are worth 1 point; descriptive questions allow up to 10 after review.
       const getPoints = (q) => {
-        const p = Number(q?.point);
-        return p > 0 ? p : 1;
+        return q?.question_type === 'Descriptive' ? 10 : 1;
       };
 
       // Sum all possible points across every question
@@ -154,7 +153,7 @@ async function calculateScore(strapi, courseId, answers, preloadedCourse = null,
           // -----------------------------
           // DESCRIPTIVE LOGIC
           // -----------------------------
-          // Not auto-graded: points are added only after an admin marks the answer correct
+          // Not auto-graded: points are added only after an admin awards descriptive points
           // (utils/quiz-review), so this score covers the auto-graded part only.
 
           // -----------------------------
@@ -689,6 +688,8 @@ module.exports = createCoreController(
             question_type: questionType,
             correct: isCorrect,
           };
+          // The `point` field is set only by the reviewer, never from learner submission data.
+          delete base.point;
 
           // Keep only the answer field relevant to the selected question type.
           // This avoids validation conflicts when one answer type field is required/hidden by conditions.

@@ -76,7 +76,7 @@ module.exports = ({ strapi }) => ({
           submitted_at: s.submitted_at || null,
           review_status: s.review_status,
           descriptive_count: toReview.length,
-          pending_count: toReview.filter((a) => typeof a.correct !== 'boolean').length,
+          pending_count: toReview.filter((a) => !Number.isInteger(a.point)).length,
           score: s.review_status === REVIEW_STATUS.REVIEWED ? s.score : null,
           passed: s.review_status === REVIEW_STATUS.REVIEWED ? s.passed === true : null,
           reviewed_by: s.reviewed_by || null,
@@ -135,6 +135,7 @@ module.exports = ({ strapi }) => ({
       passed: submission.review_status === REVIEW_STATUS.PENDING ? null : submission.passed === true,
       pass_mark: quizPassMark(course),
       total_questions: questions.length || answers.length,
+      total_points: answers.reduce((sum, a) => sum + (a.question_type === 'Descriptive' ? 10 : 1), 0),
       answers: answers.map((a) => {
         const question = questionById.get(String(a.question_id));
         return {
@@ -144,6 +145,11 @@ module.exports = ({ strapi }) => ({
           learner_answer: learnerAnswer(a, question),
           expected_answer: expectedAnswer(a, question),
           needs_review: needsManualReview(a),
+          point: Number.isInteger(a.point)
+            ? a.point
+            : a.question_type === 'Descriptive' && typeof a.correct === 'boolean'
+              ? (a.correct ? 10 : 0)
+              : null,
           correct: typeof a.correct === 'boolean' ? a.correct : null,
         };
       }),

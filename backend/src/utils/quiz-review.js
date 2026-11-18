@@ -8,8 +8,8 @@
  * answer is saved with correct = null and the submission gets review_status = Pending_review:
  * its score only covers the auto-graded part and passed stays false, so the module is neither
  * passed nor failed until an admin marks every descriptive answer. The admin review sets
- * correct per descriptive answer, then the final score / passed are derived
- * with the same rule as auto-grading (1 point per quiz question).
+ * an integer score from 0–10 per descriptive answer, then the final score / passed are derived
+ * from the weighted points (1 point per objective question and 10 maximum per descriptive one).
  */
 
 const { errors } = require('@strapi/utils');
@@ -53,15 +53,27 @@ function reviewerName(adminUser) {
   return full || adminUser.username || adminUser.email || null;
 }
 
-/** Percentage of quiz questions answered correctly (answers for unknown questions earn nothing). */
-function scoreFromCorrectFlags(answers, quizQuestions) {
-  const questionIds = new Set((quizQuestions || []).map((q) => String(q?.question_id || '')).filter(Boolean));
-  const total = questionIds.size || (answers || []).length;
-  if (!total) return 0;
-  const earned = (answers || []).filter(
-    (a) => a?.correct === true && (questionIds.size === 0 || questionIds.has(String(a.question_id)))
-  ).length;
-  return Math.round((earned / total) * 100);
+/** Weighted percentage: objective questions are worth 1; descriptive questions are worth 10. */
+function scoreFromAnswers(answers, quizQuestions) {
+  const questions = Array.isArray(quizQuestions) ? quizQuestions : [];
+  const questionById = new Map(questions.map((q) => [String(q?.question_id || ''), q]));
+  const validAnswers = (answers || []).filter((a) => {
+    return !questionById.size || questionById.has(String(a?.question_id || ''));
+  });
+  const scoreQuestions = questions.length ? questions : validAnswers;
+  const totalPoints = scoreQuestions.reduce((sum, q) => sum + (q?.question_type === 'Descriptive' ? 10 : 1), 0);
+  if (!totalPoints) return 0;
+
+  const earnedPoints = validAnswers.reduce((sum, answer) => {
+    const question = questionById.get(String(answer?.question_id || '')) || answer;
+    if (question?.question_type === 'Descriptive') {
+      // Legacy reviews only stored correct; preserve their old all-or-nothing outcome.
+      const points = Number.isInteger(answer?.point) ? answer.point : answer?.correct === true ? 10 : 0;
+      return sum + Math.max(0, Math.min(10, points));
+    }
+    return sum + (answer?.correct === true ? 1 : 0);
+  }, 0);
+  return Math.round((earnedPoints / totalPoints) * 100);
 }
 
 /** Copy a stored answer component for re-saving (component rows are recreated on update). */
@@ -76,7 +88,7 @@ function toAnswerData(answer) {
 
 /**
  * Apply an admin review to a submission.
- * @param {object} input  { answers: [{ question_id, correct: boolean }] }
+ * @param {object} input  { answers: [{ question_id, point: integer (0–10) }] }
  * @returns updated submission summary
  */
 async function applyQuizReview(strapi, submissionId, input, adminUser) {
@@ -106,20 +118,28 @@ async function applyQuizReview(strapi, submissionId, input, adminUser) {
   );
 
   const missing = [];
+  const invalid = [];
   const nextAnswers = answers.map((answer) => {
     const data = toAnswerData(answer);
     if (!isDescriptive(answer)) return data;
-    if (!needsManualReview(answer)) return { ...data, correct: false };
+    if (!needsManualReview(answer)) return { ...data, point: 0, correct: false };
 
     const review = reviews.get(String(answer.question_id));
-    if (typeof review?.correct !== 'boolean') {
+    if (!Number.isInteger(review?.point)) {
       missing.push(answer.question || answer.question_id);
       return data;
     }
-    return { ...data, correct: review.correct };
+    if (review.point < 0 || review.point > 10) {
+      invalid.push(answer.question || answer.question_id);
+      return data;
+    }
+    return { ...data, point: review.point, correct: null };
   });
+  if (invalid.length > 0) {
+    throw new errors.ValidationError(`Descriptive points must be an integer from 0 to 10 (${invalid.length} invalid).`);
+  }
   if (missing.length > 0) {
-    throw new errors.ValidationError(`Mark every descriptive answer as correct or incorrect (${missing.length} left).`);
+    throw new errors.ValidationError(`Enter points from 0 to 10 for every descriptive answer (${missing.length} left).`);
   }
 
   const courseId = submission.course?.id;
@@ -132,7 +152,7 @@ async function applyQuizReview(strapi, submissionId, input, adminUser) {
   const quizModule =
     findModule(course?.modules, submission.module_id) ||
     findModuleByQuestionIds(course, answers.map((a) => a?.question_id));
-  const score = scoreFromCorrectFlags(nextAnswers, quizModule?.quiz?.quiz_questions);
+  const score = scoreFromAnswers(nextAnswers, quizModule?.quiz?.quiz_questions);
   const passed = score >= quizPassMark(course);
 
   const data = {
@@ -232,6 +252,6 @@ module.exports = {
   isDescriptive,
   needsManualReview,
   isPendingReview,
-  scoreFromCorrectFlags,
+  scoreFromAnswers,
   applyQuizReview,
 };

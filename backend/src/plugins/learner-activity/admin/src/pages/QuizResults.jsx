@@ -72,9 +72,15 @@ function AnswerList({ attemptId }) {
         <Box key={a.question_id || i} padding={3} hasRadius borderColor="neutral200" borderStyle="solid" borderWidth="1px" background="neutral0">
           <Flex justifyContent="space-between" alignItems="flex-start" gap={3}>
             <Typography fontWeight="bold" style={{ whiteSpace: 'pre-wrap' }}>{`${i + 1}. ${a.question}`}</Typography>
-            {a.correct === true && <Badge backgroundColor="success100" textColor="success700">Correct</Badge>}
-            {a.correct === false && <Badge backgroundColor="danger100" textColor="danger700">Incorrect</Badge>}
-            {a.correct == null && <Badge backgroundColor="warning100" textColor="warning700">Not marked yet</Badge>}
+            {a.question_type === 'Descriptive' && Number.isInteger(a.point) && (
+              <Badge backgroundColor="primary100" textColor="primary700">{`${a.point}/10 points`}</Badge>
+            )}
+            {a.question_type === 'Descriptive' && !Number.isInteger(a.point) && (
+              <Badge backgroundColor="warning100" textColor="warning700">Not marked yet</Badge>
+            )}
+            {a.question_type !== 'Descriptive' && a.correct === true && <Badge backgroundColor="success100" textColor="success700">Correct</Badge>}
+            {a.question_type !== 'Descriptive' && a.correct === false && <Badge backgroundColor="danger100" textColor="danger700">Incorrect</Badge>}
+            {a.question_type !== 'Descriptive' && a.correct == null && <Badge backgroundColor="warning100" textColor="warning700">Not marked yet</Badge>}
           </Flex>
           <Typography variant="pi" textColor="neutral600" tag="p" marginTop={2}>Learner answer</Typography>
           <Typography style={{ whiteSpace: 'pre-wrap' }}>{a.learner_answer || '—'}</Typography>
