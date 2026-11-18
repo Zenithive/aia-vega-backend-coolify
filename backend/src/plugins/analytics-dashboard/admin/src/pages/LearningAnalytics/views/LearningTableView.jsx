@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Box, Badge, Flex, Typography } from '@strapi/design-system';
-import { CourseStatusBadge, formatDate, formatMinutes, formatScore, plural } from '../../../components/learningDetailUi';
+import { CourseStatusBadge, formatDate, formatScore, plural } from '../../../components/learningDetailUi';
 import { DataTable } from '../../../components/DataTable';
 import { exportToExcel } from '../../../components/CompactTable';
 
@@ -99,25 +99,21 @@ export function LearningTableView({
   const exportRows = applyEmployeeFilters(allRows.length > 0 ? allRows : rows, search, filterCourse);
   const normalizedCompany = String(company || '').toLowerCase();
   const exportColumns = [
-    { label: 'Employee', value: (r) => r.employeeName },
-    { label: 'Employee ID', value: (r) => getEmployeeIdValue(r, normalizedCompany) },
+    { label: 'Name', value: (r) => r.employeeName },
+    { label: 'Account status', value: (r) => r.accountStatus || 'Active' },
+    { label: 'Emp ID', value: (r) => getEmployeeIdValue(r, normalizedCompany) },
     { label: 'Email', value: (r) => r.email },
     { label: 'Company', value: (r) => r.company },
     { label: 'Location', value: (r) => getLocationValue(r, normalizedCompany) },
-    { label: 'Account status', value: (r) => r.accountStatus || 'Active' },
-    { label: 'Status', value: (r) => (r.coursesCompleted ? 'Completed' : r.coursesInProgress ? 'In progress' : r.coursesAssigned ? 'Not started' : '') },
+    { label: 'Course status', value: (r) => (r.coursesCompleted ? 'Completed' : r.coursesInProgress ? 'In progress' : r.coursesAssigned ? 'Not started' : '') },
     { label: 'Overdue', value: (r) => (r.coursesOverdue ? 'Yes' : 'No') },
     { label: 'Avg progress %', value: (r) => r.progressPercent },
     { label: 'Online modules done', value: (r) => `${r.onlineModulesCompleted ?? 0}/${r.onlineModulesTotal ?? 0}` },
     { label: 'Offline modules done', value: (r) => `${r.offlineModulesCompleted ?? 0}/${r.offlineModulesTotal ?? 0}` },
-    { label: 'Waiting for offline proof', value: (r) => r.offlineProofPending },
     { label: 'Quiz attempts', value: (r) => r.quizAttempts },
     { label: 'Avg quiz score %', value: (r) => r.avgQuizScore },
     { label: 'Feedback given', value: (r) => r.feedbackSubmitted },
     { label: 'Feedback pending', value: (r) => r.feedbackPending },
-    { label: 'Learning time (min)', value: (r) => r.courseCompletionTimeMinutes },
-    { label: 'Content time (min)', value: (r) => r.contentMinutes },
-    { label: 'Quiz time (min)', value: (r) => r.quizMinutes },
     { label: 'Last activity', value: (r) => formatDate(r.lastActivityAt) },
   ];
 
@@ -129,7 +125,7 @@ export function LearningTableView({
         data={rows}
         rowKey={(row) => row.employeeId}
         emptyMessage="No employees found. Try adjusting filters or search."
-        tableMinWidth={2300}
+        tableMinWidth={1850}
         fontSize="14px"
         onExport={() => exportToExcel(exportRows, exportColumns, 'employee-learning-summary.xlsx', 'Employee learning summary')}
         pagination={{
@@ -142,7 +138,7 @@ export function LearningTableView({
             setPage(1);
           },
         }}
-        sortBy="courseCompletionTimeMinutes"
+        sortBy="employeeName"
         sortOrder={sortOrder}
         onSortChange={(_, order) => {
           setSortOrder(order);
@@ -151,16 +147,22 @@ export function LearningTableView({
         columns={[
           {
             key: 'employeeName',
-            label: 'Employee',
+            label: 'Name',
             width: 280,
-            render: (row) => (
-              <Flex direction="column" alignItems="flex-start" gap={1}>
-                <Typography fontWeight="semiBold">{row.employeeName || '—'}</Typography>
-                <Typography variant="pi" textColor="neutral600">
-                  {getEmployeeIdValue(row, normalizedCompany) || '—'}
-                </Typography>
-              </Flex>
-            ),
+            sortable: true,
+            render: (row) => <Typography fontWeight="semiBold">{row.employeeName || '—'}</Typography>,
+          },
+          {
+            key: 'accountStatus',
+            label: 'Account status',
+            width: 130,
+            render: (row) => renderAccountStatusTags(row),
+          },
+          {
+            key: 'employeeId',
+            label: 'Emp ID',
+            width: 130,
+            render: (row) => getEmployeeIdValue(row, normalizedCompany) || '—',
           },
           {
             key: 'email',
@@ -179,12 +181,6 @@ export function LearningTableView({
             label: 'Location',
             width: 150,
             render: (row) => getLocationValue(row, normalizedCompany) || '—',
-          },
-          {
-            key: 'accountStatus',
-            label: 'Account status',
-            width: 130,
-            render: (row) => renderAccountStatusTags(row),
           },
           {
             key: 'status',
@@ -223,12 +219,6 @@ export function LearningTableView({
             render: (row) => `${row.offlineModulesCompleted ?? 0}/${row.offlineModulesTotal ?? 0}`,
           },
           {
-            key: 'offlineProofPending',
-            label: 'Waiting for proof',
-            width: 120,
-            render: (row) => row.offlineProofPending > 0 ? plural(row.offlineProofPending, 'module') : '—',
-          },
-          {
             key: 'quizAttempts',
             label: 'Quiz attempts',
             width: 110,
@@ -250,25 +240,6 @@ export function LearningTableView({
               if (!given && !pending) return '—';
               return `${given} given · ${pending} pending`;
             },
-          },
-          {
-            key: 'courseCompletionTimeMinutes',
-            label: 'Learning time',
-            width: 120,
-            sortable: true,
-            render: (row) => formatMinutes(row.courseCompletionTimeMinutes),
-          },
-          {
-            key: 'contentMinutes',
-            label: 'Content time',
-            width: 120,
-            render: (row) => formatMinutes(row.contentMinutes),
-          },
-          {
-            key: 'quizMinutes',
-            label: 'Quiz time',
-            width: 120,
-            render: (row) => formatMinutes(row.quizMinutes),
           },
           {
             key: 'lastActivityAt',

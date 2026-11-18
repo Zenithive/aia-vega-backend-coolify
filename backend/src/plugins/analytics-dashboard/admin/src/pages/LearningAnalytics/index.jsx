@@ -376,7 +376,7 @@ export default function LearningAnalyticsPage() {
       const searchVal = searchDebounced?.trim();
       tableParams = {
         ...params,
-        sortBy: 'courseCompletionTimeMinutes',
+        sortBy: 'employeeName',
         sortOrder,
         page,
         pageSize,
