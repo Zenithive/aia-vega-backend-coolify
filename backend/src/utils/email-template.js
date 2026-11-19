@@ -274,7 +274,7 @@ function buildNotificationBodyContent(type, message, meta = {}) {
         Great news! Your quiz reattempt request has been <strong style="color:${SUCCESS};">approved</strong>.
       </p>
       ${courseChip(SUCCESS, SUCCESS_LIGHT)}
-      ${buildInfoBlock('Request reference', meta.requestId, SUCCESS, SUCCESS_LIGHT)}
+      ${buildInfoBlock('Attempt number', meta.attemptNumber, SUCCESS, SUCCESS_LIGHT)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">The reattempt is now approved. Log in to the portal to open the course and start the quiz when you are ready.</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">Best of luck! If you need any support, please contact the Learning &amp; Development team.</p>
     `;
@@ -287,7 +287,7 @@ function buildNotificationBodyContent(type, message, meta = {}) {
         We regret to inform you that your quiz reattempt request has been <strong style="color:${ERROR};">rejected</strong>.
       </p>
       ${courseChip(ERROR, ERROR_LIGHT)}
-      ${buildInfoBlock('Request reference', meta.requestId, ERROR, ERROR_LIGHT)}
+      ${buildInfoBlock('Attempt number', meta.attemptNumber, ERROR, ERROR_LIGHT)}
       <p style="font-size:14px;color:${GRAY_TEXT};margin:10px 0;">The request was not approved. Contact your Learning &amp; Development team or line manager if you need the reason for this decision or believe it was made in error.</p>
       <p style="font-size:13px;color:${GRAY_TEXT};margin:10px 0;">You may submit a new reattempt request after <strong>24 hours</strong> from the time of this notification.</p>
       <p style="font-size:12px;color:${GRAY_TEXT};margin:0;">We appreciate your commitment to learning and encourage you to continue your progress.</p>
